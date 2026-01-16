@@ -42,12 +42,14 @@ export class ValidationPipeline {
     this.workingDir = workingDir ?? process.cwd();
   }
 
-  async run(options: {
-    skipBuild?: boolean;
-    skipTest?: boolean;
-    skipLint?: boolean;
-    skipTypecheck?: boolean;
-  } = {}): Promise<ValidationResult> {
+  async run(
+    options: {
+      skipBuild?: boolean;
+      skipTest?: boolean;
+      skipLint?: boolean;
+      skipTypecheck?: boolean;
+    } = {}
+  ): Promise<ValidationResult> {
     const startTime = Date.now();
     const commands = await this.detectCommands();
     const checks: ValidationResult['checks'] = {};

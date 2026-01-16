@@ -145,10 +145,13 @@ export class RouteIndexer {
       const pkg = JSON.parse(pkgContent) as { dependencies?: Record<string, string> };
 
       const deps = pkg.dependencies;
-      if (deps !== undefined && (deps['express'] !== undefined || deps['@nestjs/core'] !== undefined)) {
+      if (
+        deps !== undefined &&
+        (deps['express'] !== undefined || deps['@nestjs/core'] !== undefined)
+      ) {
         frameworks.push('express');
       }
-      if (deps !== undefined && deps['fastify'] !== undefined) {
+      if (deps?.['fastify'] !== undefined) {
         frameworks.push('express'); // Similar patterns
       }
     } catch {

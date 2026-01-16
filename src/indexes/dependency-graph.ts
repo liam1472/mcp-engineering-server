@@ -41,21 +41,10 @@ const IMPORT_PATTERNS: Record<string, RegExp[]> = {
     /require\s*\(\s*['"]([^'"]+)['"]\s*\)/g,
     /export\s+(?:\{[^}]*\}|\*)\s+from\s+['"]([^'"]+)['"]/g,
   ],
-  python: [
-    /^import\s+(\w+(?:\.\w+)*)/gm,
-    /^from\s+(\w+(?:\.\w+)*)\s+import/gm,
-  ],
-  go: [
-    /import\s+"([^"]+)"/g,
-    /import\s+\w+\s+"([^"]+)"/g,
-  ],
-  rust: [
-    /use\s+(?:crate::)?(\w+(?:::\w+)*)/g,
-    /mod\s+(\w+)/g,
-  ],
-  csharp: [
-    /using\s+(\w+(?:\.\w+)*)\s*;/g,
-  ],
+  python: [/^import\s+(\w+(?:\.\w+)*)/gm, /^from\s+(\w+(?:\.\w+)*)\s+import/gm],
+  go: [/import\s+"([^"]+)"/g, /import\s+\w+\s+"([^"]+)"/g],
+  rust: [/use\s+(?:crate::)?(\w+(?:::\w+)*)/g, /mod\s+(\w+)/g],
+  csharp: [/using\s+(\w+(?:\.\w+)*)\s*;/g],
 };
 
 const FILE_EXTENSIONS: Record<string, string> = {
@@ -203,11 +192,7 @@ export class DependencyAnalyzer {
     }
   }
 
-  private resolveImport(
-    importPath: string,
-    fromFile: string,
-    language: string
-  ): string | null {
+  private resolveImport(importPath: string, fromFile: string, language: string): string | null {
     const fromDir = path.dirname(fromFile);
 
     switch (language) {

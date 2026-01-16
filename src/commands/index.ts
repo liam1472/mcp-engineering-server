@@ -46,12 +46,20 @@ export function registerCommands(): Tool[] {
         properties: {
           fix: {
             type: 'boolean',
-            description: 'Auto-fix issues: create .env, update .gitignore, replace hardcoded secrets with process.env.XXX (creates .bak backups)',
+            description:
+              'Auto-fix issues: create .env, update .gitignore, replace hardcoded secrets with process.env.XXX (creates .bak backups)',
             default: false,
           },
           dryRun: {
             type: 'boolean',
-            description: 'Preview changes without applying (use with --fix to see what would be changed)',
+            description:
+              'Preview changes without applying (use with --fix to see what would be changed)',
+            default: false,
+          },
+          force: {
+            type: 'boolean',
+            description:
+              'Force apply changes even when >5 files would be modified (safety override)',
             default: false,
           },
         },
@@ -330,12 +338,20 @@ export function registerCommands(): Tool[] {
         properties: {
           fix: {
             type: 'boolean',
-            description: 'Auto-fix issues: extract duplicates to functions, replace magic numbers with constants (creates .bak backups)',
+            description:
+              'Auto-fix issues: extract duplicates to functions, replace magic numbers with constants (creates .bak backups)',
             default: false,
           },
           dryRun: {
             type: 'boolean',
-            description: 'Preview changes without applying (use with --fix to see what would be changed)',
+            description:
+              'Preview changes without applying (use with --fix to see what would be changed)',
+            default: false,
+          },
+          force: {
+            type: 'boolean',
+            description:
+              'Force apply changes even when >5 files would be modified (safety override)',
             default: false,
           },
         },

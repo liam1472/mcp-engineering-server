@@ -21,7 +21,19 @@ export interface SimilarityResult {
   matches: SimilarityMatch[];
 }
 
-const FILE_EXTENSIONS = ['.ts', '.tsx', '.js', '.jsx', '.py', '.cs', '.go', '.rs', '.c', '.cpp', '.h'];
+const FILE_EXTENSIONS = [
+  '.ts',
+  '.tsx',
+  '.js',
+  '.jsx',
+  '.py',
+  '.cs',
+  '.go',
+  '.rs',
+  '.c',
+  '.cpp',
+  '.h',
+];
 
 export class SimilarityAnalyzer {
   private workingDir: string;
@@ -35,13 +47,17 @@ export class SimilarityAnalyzer {
     const queryTokens = this.tokenize(normalizedQuery);
     const matches: SimilarityMatch[] = [];
 
-    const files = await glob(FILE_EXTENSIONS.map(ext => `**/*${ext}`), {
-      cwd: this.workingDir,
-      nodir: true,
-      ignore: ['**/node_modules/**', '**/dist/**', '**/build/**', '**/.git/**', '**/vendor/**'],
-    });
+    const files = await glob(
+      FILE_EXTENSIONS.map(ext => `**/*${ext}`),
+      {
+        cwd: this.workingDir,
+        nodir: true,
+        ignore: ['**/node_modules/**', '**/dist/**', '**/build/**', '**/.git/**', '**/vendor/**'],
+      }
+    );
 
-    for (const file of files.slice(0, 200)) { // Limit for performance
+    for (const file of files.slice(0, 200)) {
+      // Limit for performance
       try {
         const fullPath = path.join(this.workingDir, file);
         const content = await fs.readFile(fullPath, 'utf-8');

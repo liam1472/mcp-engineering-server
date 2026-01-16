@@ -246,7 +246,9 @@ export class ReviewChecker {
   private async checkDuplicates(): Promise<ReviewCheckItem> {
     try {
       const duplicates = await this.duplicateDetector.scan();
-      const significantDuplicates = duplicates.filter(d => d.lines >= 10 && d.occurrences.length >= 3);
+      const significantDuplicates = duplicates.filter(
+        d => d.lines >= 10 && d.occurrences.length >= 3
+      );
 
       if (significantDuplicates.length > 0) {
         return {
@@ -299,7 +301,10 @@ export class ReviewChecker {
             return;
           }
 
-          const lines = output.trim().split('\n').filter(l => l.length > 0);
+          const lines = output
+            .trim()
+            .split('\n')
+            .filter(l => l.length > 0);
           if (lines.length === 0) {
             resolve({
               name: 'Git Status',
@@ -367,7 +372,9 @@ export class ReviewChecker {
     }
 
     // Summary
-    lines.push(`\nSummary: ${report.summary.passed} passed, ${report.summary.failed} failed, ${report.summary.warnings} warnings`);
+    lines.push(
+      `\nSummary: ${report.summary.passed} passed, ${report.summary.failed} failed, ${report.summary.warnings} warnings`
+    );
 
     return lines.join('\n');
   }

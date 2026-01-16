@@ -197,9 +197,12 @@ server.setRequestHandler(CallToolRequestSchema, async request => {
 
     case 'eng_security': {
       try {
-        const securityArgs = args as { fix?: boolean; dryRun?: boolean } | undefined;
+        const securityArgs = args as
+          | { fix?: boolean; dryRun?: boolean; force?: boolean }
+          | undefined;
         const shouldFix = securityArgs?.fix === true;
         const dryRun = securityArgs?.dryRun === true;
+        const force = securityArgs?.force === true;
 
         const findings = await securityScanner.scan();
 
@@ -249,12 +252,13 @@ server.setRequestHandler(CallToolRequestSchema, async request => {
             report += '\n\n=== DRY RUN - Preview of changes ===\n';
             report += fix.instructions;
             report += '\n\n--- .env file content (would be created) ---\n' + fix.envFile;
-            report += '\n\n--- .env.example file content (would be created) ---\n' + fix.envExampleFile;
+            report +=
+              '\n\n--- .env.example file content (would be created) ---\n' + fix.envExampleFile;
             report += '\n\n--- .gitignore entries (would be added) ---\n' + fix.gitignoreEntry;
             report += '\n\nRun with --fix (without --dry-run) to apply these changes.';
           } else {
-            // Actually apply fixes
-            const result = await securityScanner.applyFixes(findings);
+            // Actually apply fixes with safety options
+            const result = await securityScanner.applyFixes(findings, { force });
             report += '\n\n' + result.summary;
           }
         }
@@ -955,7 +959,9 @@ server.setRequestHandler(CallToolRequestSchema, async request => {
           skipLint?: boolean;
         } = {};
 
-        const argsObj = args as { skipBuild?: boolean; skipTest?: boolean; skipLint?: boolean } | undefined;
+        const argsObj = args as
+          | { skipBuild?: boolean; skipTest?: boolean; skipLint?: boolean }
+          | undefined;
         if (argsObj?.skipBuild === true) options.skipBuild = true;
         if (argsObj?.skipTest === true) options.skipTest = true;
         if (argsObj?.skipLint === true) options.skipLint = true;
@@ -982,7 +988,9 @@ server.setRequestHandler(CallToolRequestSchema, async request => {
           content: [
             {
               type: 'text',
-              text: dependencyAnalyzer.getSummary() + '\n\nFull report: .engineering/index/dependencies.yaml',
+              text:
+                dependencyAnalyzer.getSummary() +
+                '\n\nFull report: .engineering/index/dependencies.yaml',
             },
           ],
         };
@@ -996,9 +1004,12 @@ server.setRequestHandler(CallToolRequestSchema, async request => {
 
     case 'eng_refactor': {
       try {
-        const refactorArgs = args as { fix?: boolean; dryRun?: boolean } | undefined;
+        const refactorArgs = args as
+          | { fix?: boolean; dryRun?: boolean; force?: boolean }
+          | undefined;
         const shouldFix = refactorArgs?.fix === true;
         const dryRun = refactorArgs?.dryRun === true;
+        const force = refactorArgs?.force === true;
 
         // Always generate fixes if fix flag is set (for dry-run or apply)
         const report = await refactorAnalyzer.analyze({ generateFixes: shouldFix });
@@ -1024,8 +1035,8 @@ server.setRequestHandler(CallToolRequestSchema, async request => {
 
         // Handle fix mode
         if (shouldFix && !dryRun) {
-          // Actually apply fixes
-          const result = await refactorAnalyzer.applyFixes(report);
+          // Actually apply fixes with safety options
+          const result = await refactorAnalyzer.applyFixes(report, { force });
           output += '\n\n' + result.summary;
         } else if (shouldFix && dryRun) {
           output += '\n\nRun with --fix (without --dry-run) to apply these changes.';

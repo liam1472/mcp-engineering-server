@@ -8,6 +8,12 @@ import * as path from 'path';
 import { glob } from 'glob';
 import { DuplicateDetector } from './duplicate-detector.js';
 import type { DuplicateBlock } from '../types/index.js';
+import {
+  filterSafeFiles,
+  requiresForceFlag,
+  AtomicFileWriter,
+  MAX_FILES_WITHOUT_FORCE,
+} from '../core/safety.js';
 
 export interface RefactorSuggestion {
   type: 'extract-function' | 'extract-constant' | 'reduce-complexity' | 'remove-duplicate';
@@ -51,8 +57,10 @@ export interface ApplyRefactorResult {
   success: boolean;
   filesModified: string[];
   filesBackedUp: string[];
+  filesBlocked: Array<{ file: string; reason: string }>;
   constantsAdded: number;
   duplicatesFixed: number;
+  requiresForce: boolean;
   errors: string[];
   manualInstructions: string[];
   summary: string;
@@ -74,7 +82,20 @@ interface LongFunction {
 
 const FILE_EXTENSIONS = ['.ts', '.tsx', '.js', '.jsx', '.py', '.cs', '.go', '.rs', '.c', '.cpp'];
 const MAGIC_NUMBER_PATTERN = /(?<![a-zA-Z_])(\d{2,}|0x[0-9a-fA-F]{3,})(?![a-zA-Z_\d])/g;
-const ALLOWED_NUMBERS = new Set(['0', '1', '2', '10', '100', '1000', '60', '24', '365', '1024', '2048', '4096']);
+const ALLOWED_NUMBERS = new Set([
+  '0',
+  '1',
+  '2',
+  '10',
+  '100',
+  '1000',
+  '60',
+  '24',
+  '365',
+  '1024',
+  '2048',
+  '4096',
+]);
 const LONG_FUNCTION_THRESHOLD = 50;
 
 // Patterns that should NOT be extracted as functions
@@ -112,7 +133,10 @@ export class RefactorAnalyzer {
    * Returns false for imports, comments, type definitions, etc.
    */
   private shouldExtract(code: string): boolean {
-    const lines = code.split('\n').map(l => l.trim()).filter(l => l.length > 0);
+    const lines = code
+      .split('\n')
+      .map(l => l.trim())
+      .filter(l => l.length > 0);
     if (lines.length === 0) return false;
 
     // Check if ALL lines are non-extractable (imports, comments, etc.)
@@ -156,11 +180,14 @@ export class RefactorAnalyzer {
     }
 
     // Calculate stats
-    const files = await glob(FILE_EXTENSIONS.map(ext => `**/*${ext}`), {
-      cwd: this.workingDir,
-      nodir: true,
-      ignore: ['**/node_modules/**', '**/dist/**', '**/build/**', '**/.git/**'],
-    });
+    const files = await glob(
+      FILE_EXTENSIONS.map(ext => `**/*${ext}`),
+      {
+        cwd: this.workingDir,
+        nodir: true,
+        ignore: ['**/node_modules/**', '**/dist/**', '**/build/**', '**/.git/**'],
+      }
+    );
 
     const totalDuplicateLines = duplicates.reduce(
       (sum, d) => sum + d.lines * d.occurrences.length,
@@ -185,13 +212,24 @@ export class RefactorAnalyzer {
 
   private async findMagicNumbers(): Promise<MagicNumber[]> {
     const magicNumbers: MagicNumber[] = [];
-    const files = await glob(FILE_EXTENSIONS.map(ext => `**/*${ext}`), {
-      cwd: this.workingDir,
-      nodir: true,
-      ignore: ['**/node_modules/**', '**/dist/**', '**/build/**', '**/.git/**', '**/*.test.*', '**/*.spec.*'],
-    });
+    const files = await glob(
+      FILE_EXTENSIONS.map(ext => `**/*${ext}`),
+      {
+        cwd: this.workingDir,
+        nodir: true,
+        ignore: [
+          '**/node_modules/**',
+          '**/dist/**',
+          '**/build/**',
+          '**/.git/**',
+          '**/*.test.*',
+          '**/*.spec.*',
+        ],
+      }
+    );
 
-    for (const file of files.slice(0, 100)) { // Limit for performance
+    for (const file of files.slice(0, 100)) {
+      // Limit for performance
       try {
         const fullPath = path.join(this.workingDir, file);
         const content = await fs.readFile(fullPath, 'utf-8');
@@ -203,8 +241,13 @@ export class RefactorAnalyzer {
 
           // Skip comments and imports
           const trimmedLine = line.trim();
-          if (trimmedLine.startsWith('//') || trimmedLine.startsWith('#') ||
-              trimmedLine.startsWith('import') || trimmedLine.startsWith('const ')) continue;
+          if (
+            trimmedLine.startsWith('//') ||
+            trimmedLine.startsWith('#') ||
+            trimmedLine.startsWith('import') ||
+            trimmedLine.startsWith('const ')
+          )
+            continue;
 
           let match;
           while ((match = MAGIC_NUMBER_PATTERN.exec(line)) !== null) {
@@ -287,7 +330,11 @@ export class RefactorAnalyzer {
           // Python-style: track by indentation
           if (file.endsWith('.py') && currentFunction) {
             const currentIndent = line.search(/\S/);
-            if (currentIndent !== -1 && currentIndent <= indentLevel && i > currentFunction.startLine) {
+            if (
+              currentIndent !== -1 &&
+              currentIndent <= indentLevel &&
+              i > currentFunction.startLine
+            ) {
               if (i - currentFunction.startLine > LONG_FUNCTION_THRESHOLD) {
                 longFunctions.push({
                   file,
@@ -363,7 +410,10 @@ export class RefactorAnalyzer {
           type: 'extract-constant',
           priority: numbers.length >= 5 ? 'medium' : 'low',
           title: `Extract magic numbers in ${path.basename(file)}`,
-          description: `Found ${numbers.length} magic numbers. Consider defining as named constants:\n${numbers.slice(0, 3).map(n => `  Line ${n.line}: ${n.value}`).join('\n')}`,
+          description: `Found ${numbers.length} magic numbers. Consider defining as named constants:\n${numbers
+            .slice(0, 3)
+            .map(n => `  Line ${n.line}: ${n.value}`)
+            .join('\n')}`,
           files: [file],
           estimatedImpact: 'Improved code readability and maintainability',
         });
@@ -404,10 +454,9 @@ export class RefactorAnalyzer {
         const lines = titleMatch ? parseInt(titleMatch[1] ?? '0', 10) : 0;
         const occurrences = titleMatch ? parseInt(titleMatch[2] ?? '0', 10) : 0;
 
-        const dup = duplicates.find(d =>
-          d.lines === lines &&
-          d.occurrences.length === occurrences &&
-          !usedDupHashes.has(d.hash)
+        const dup = duplicates.find(
+          d =>
+            d.lines === lines && d.occurrences.length === occurrences && !usedDupHashes.has(d.hash)
         );
 
         if (dup && dup.occurrences.length > 0) {
@@ -504,8 +553,21 @@ export class RefactorAnalyzer {
     const constants: string[] = [];
     const replacements: RefactorFix['replacements'] = [];
 
+    // Track used constant names to avoid duplicates
+    const usedNames = new Set<string>();
+
     for (const num of numbers.slice(0, 10)) {
-      const constName = this.generateConstantName(num.value, num.context);
+      let constName = this.generateConstantName(num.value, num.context);
+
+      // Ensure unique name by adding suffix if needed
+      let uniqueName = constName;
+      let counter = 1;
+      while (usedNames.has(uniqueName)) {
+        uniqueName = `${constName}_${counter}`;
+        counter++;
+      }
+      usedNames.add(uniqueName);
+      constName = uniqueName;
 
       if (isPython) {
         constants.push(`${constName} = ${num.value}`);
@@ -595,7 +657,9 @@ export class RefactorAnalyzer {
     }
 
     // Fallback: extract verbs and nouns from code
-    const verbMatches = code.match(/\b(get|set|create|build|parse|format|validate|process|handle|init|load|save|read|write|find|search|check|update|delete|remove|add|insert)\w*/gi);
+    const verbMatches = code.match(
+      /\b(get|set|create|build|parse|format|validate|process|handle|init|load|save|read|write|find|search|check|update|delete|remove|add|insert)\w*/gi
+    );
     if (verbMatches && verbMatches.length > 0) {
       const verb = verbMatches[0] ?? 'process';
       // Clean up and format
@@ -622,7 +686,10 @@ export class RefactorAnalyzer {
   }
 
   private indent(code: string, prefix: string): string {
-    return code.split('\n').map(line => prefix + line).join('\n');
+    return code
+      .split('\n')
+      .map(line => prefix + line)
+      .join('\n');
   }
 
   private createEmptyFix(type: string): RefactorFix {
@@ -643,7 +710,9 @@ export class RefactorAnalyzer {
 
     lines.push('=== Refactor Analysis Summary ===\n');
     lines.push(`Scanned: ${stats.filesScanned} files`);
-    lines.push(`Duplicate blocks: ${stats.duplicateBlocks} (${stats.totalDuplicateLines} total lines)`);
+    lines.push(
+      `Duplicate blocks: ${stats.duplicateBlocks} (${stats.totalDuplicateLines} total lines)`
+    );
     lines.push(`Magic numbers: ${stats.magicNumbers}`);
     lines.push(`Long functions: ${stats.longFunctions}\n`);
 
@@ -659,7 +728,8 @@ export class RefactorAnalyzer {
 
       lines.push('\nTop suggestions:');
       for (const suggestion of suggestions.slice(0, 5)) {
-        const icon = suggestion.priority === 'high' ? '!' : suggestion.priority === 'medium' ? '*' : '-';
+        const icon =
+          suggestion.priority === 'high' ? '!' : suggestion.priority === 'medium' ? '*' : '-';
         lines.push(`  ${icon} [${suggestion.priority.toUpperCase()}] ${suggestion.title}`);
         lines.push(`    Impact: ${suggestion.estimatedImpact}`);
       }
@@ -675,16 +745,26 @@ export class RefactorAnalyzer {
 
   /**
    * Apply refactor fixes - actually modify files
-   * Creates backups before modifying
+   * Creates backups before modifying, with atomic rollback on failure
    * Only applies safe fixes (constants); duplicates get manual instructions
+   *
+   * Safety features:
+   * - Protected paths (node_modules, .git, own src/) are blocked
+   * - Requires --force flag for >5 files
+   * - Atomic rollback on any failure
    */
-  async applyFixes(report: RefactorReport): Promise<ApplyRefactorResult> {
+  async applyFixes(
+    report: RefactorReport,
+    options: { force?: boolean } = {}
+  ): Promise<ApplyRefactorResult> {
     const result: ApplyRefactorResult = {
       success: false,
       filesModified: [],
       filesBackedUp: [],
+      filesBlocked: [],
       constantsAdded: 0,
       duplicatesFixed: 0,
+      requiresForce: false,
       errors: [],
       manualInstructions: [],
       summary: '',
@@ -696,22 +776,63 @@ export class RefactorAnalyzer {
       return result;
     }
 
+    // Initialize atomic file writer for rollback capability
+    const atomicWriter = new AtomicFileWriter(this.workingDir);
+
     try {
       // Group fixes by type
       const constantFixes = report.suggestions.filter(s => s.type === 'extract-constant' && s.fix);
       const duplicateFixes = report.suggestions.filter(s => s.type === 'remove-duplicate' && s.fix);
 
-      // Apply constant fixes (safe to auto-apply)
+      // Get all files that would be modified
+      const filesToModify = constantFixes
+        .map(s => s.files[0])
+        .filter((f): f is string => f !== undefined);
+
+      // Safety check: filter out protected paths
+      const { safeFiles, blockedFiles } = await filterSafeFiles(filesToModify, this.workingDir);
+      result.filesBlocked = blockedFiles;
+
+      if (blockedFiles.length > 0) {
+        result.errors.push(
+          `Blocked ${blockedFiles.length} file(s) in protected paths:\n` +
+            blockedFiles.map(b => `  - ${b.file}: ${b.reason}`).join('\n')
+        );
+      }
+
+      // Safety check: require --force for large changes
+      if (requiresForceFlag(safeFiles.length) && !options.force) {
+        result.requiresForce = true;
+        result.summary =
+          `⚠ Operation requires --force flag.\n` +
+          `Would modify ${safeFiles.length} files (limit: ${MAX_FILES_WITHOUT_FORCE}).\n` +
+          `Run with --force to proceed, or review files first:\n` +
+          safeFiles.map(f => `  - ${f}`).join('\n');
+        return result;
+      }
+
+      // Create a set of safe files for quick lookup
+      const safeFileSet = new Set(safeFiles);
+
+      // Apply constant fixes (safe to auto-apply) - only to safe files
       for (const suggestion of constantFixes) {
         if (!suggestion.fix) continue;
 
         const file = suggestion.files[0];
-        if (!file) continue;
+        if (!file || !safeFileSet.has(file)) continue;
 
         try {
-          await this.applyConstantFix(file, suggestion.fix, result);
+          await this.applyConstantFix(file, suggestion.fix, result, atomicWriter);
         } catch (error) {
           result.errors.push(`Failed to apply constant fix to ${file}: ${String(error)}`);
+          // Rollback all changes on any failure
+          try {
+            await atomicWriter.rollback();
+            result.summary = `✗ Refactor fix failed (rolled back): ${String(error)}`;
+          } catch (rollbackError) {
+            result.summary = `✗ Refactor fix failed AND rollback failed: ${String(rollbackError)}`;
+          }
+          return result;
         }
       }
 
@@ -724,8 +845,13 @@ export class RefactorAnalyzer {
         result.duplicatesFixed++;
       }
 
+      // Commit changes (keep backups for user reference)
+      atomicWriter.commit();
+
       // Generate summary
-      result.success = result.errors.length === 0;
+      result.success =
+        result.errors.length === 0 ||
+        (result.errors.length === result.filesBlocked.length && result.filesModified.length > 0);
       const parts: string[] = [];
 
       if (result.filesModified.length > 0) {
@@ -740,8 +866,8 @@ export class RefactorAnalyzer {
       if (result.duplicatesFixed > 0) {
         parts.push(`${result.duplicatesFixed} duplicate fix(es) require manual review`);
       }
-      if (result.errors.length > 0) {
-        parts.push(`${result.errors.length} error(s)`);
+      if (result.filesBlocked.length > 0) {
+        parts.push(`Blocked ${result.filesBlocked.length} protected file(s)`);
       }
 
       result.summary = `✓ Refactor fix applied:\n  ${parts.join('\n  ')}`;
@@ -754,8 +880,8 @@ export class RefactorAnalyzer {
         result.summary += `\n\nFiles modified:\n  ${result.filesModified.join('\n  ')}`;
       }
 
-      if (result.errors.length > 0) {
-        result.summary += `\n\nErrors:\n  ${result.errors.join('\n  ')}`;
+      if (result.filesBlocked.length > 0) {
+        result.summary += `\n\nBlocked files (protected paths):\n  ${result.filesBlocked.map(b => `${b.file}: ${b.reason}`).join('\n  ')}`;
       }
 
       if (result.manualInstructions.length > 0) {
@@ -765,8 +891,16 @@ export class RefactorAnalyzer {
 
       return result;
     } catch (error) {
-      result.errors.push(`Apply failed: ${String(error)}`);
-      result.summary = `✗ Refactor fix failed: ${String(error)}`;
+      // Attempt rollback on any unexpected error
+      try {
+        await atomicWriter.rollback();
+        result.errors.push(`Apply failed (rolled back): ${String(error)}`);
+        result.summary = `✗ Refactor fix failed (rolled back): ${String(error)}`;
+      } catch (rollbackError) {
+        result.errors.push(`Apply failed: ${String(error)}`);
+        result.errors.push(`Rollback also failed: ${String(rollbackError)}`);
+        result.summary = `✗ Refactor fix failed AND rollback failed. Manual cleanup may be needed.`;
+      }
       return result;
     }
   }
@@ -774,16 +908,16 @@ export class RefactorAnalyzer {
   private async applyConstantFix(
     file: string,
     fix: RefactorFix,
-    result: ApplyRefactorResult
+    result: ApplyRefactorResult,
+    atomicWriter: AtomicFileWriter
   ): Promise<void> {
     const fullPath = path.join(this.workingDir, file);
-    const backupPath = fullPath + '.bak';
 
     // Read original file
     const content = await fs.readFile(fullPath, 'utf-8');
 
-    // Create backup
-    await fs.writeFile(backupPath, content, 'utf-8');
+    // Create backup using atomic writer
+    await atomicWriter.backup(file);
     result.filesBackedUp.push(file + '.bak');
 
     const lines = content.split('\n');
@@ -793,10 +927,17 @@ export class RefactorAnalyzer {
     for (let i = 0; i < lines.length; i++) {
       const line = lines[i]?.trim() ?? '';
       // Skip past imports, empty lines, and comments at the top
-      if (line.startsWith('import ') || line.startsWith('from ') ||
-          line.startsWith('//') || line.startsWith('/*') || line.startsWith('*') ||
-          line.startsWith('#') || line.startsWith('using ') ||
-          line === '' || line.startsWith('"use ')) {
+      if (
+        line.startsWith('import ') ||
+        line.startsWith('from ') ||
+        line.startsWith('//') ||
+        line.startsWith('/*') ||
+        line.startsWith('*') ||
+        line.startsWith('#') ||
+        line.startsWith('using ') ||
+        line === '' ||
+        line.startsWith('"use ')
+      ) {
         insertLine = i + 1;
       } else if (line.length > 0 && !line.startsWith('export ')) {
         // Found first non-import line that's not an export

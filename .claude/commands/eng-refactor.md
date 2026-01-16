@@ -9,9 +9,11 @@ Usage:
   /eng-refactor               # Analyze only (suggestions)
   /eng-refactor --fix         # Auto-fix: add constants, backup files
   /eng-refactor --fix --dry-run   # Preview what --fix would change
+  /eng-refactor --fix --force     # Force apply when >5 files (safety override)
 
 When `--fix` is used, parse $ARGUMENTS to set `{ "fix": true }`.
 When `--dry-run` is also used, set `{ "fix": true, "dryRun": true }`.
+When `--force` is also used, set `{ "fix": true, "force": true }`.
 
 Detects:
 - Duplicate code blocks (5+ lines repeated 2+ times)
@@ -32,5 +34,12 @@ With `--fix` flag:
 With `--dry-run` flag (used with `--fix`):
 - Shows preview of all changes without modifying files
 - Use this to review before applying
+
+Safety features:
+- Protected paths (node_modules, .git, own src/) are never modified
+- Requires `--force` flag when modifying more than 5 files
+- Atomic rollback: if any file fails, all changes are reverted
+- All modifications create `.bak` backup files
+- Duplicate constant names are automatically disambiguated
 
 Use this before /eng-done to improve code quality.
