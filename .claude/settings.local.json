@@ -2,7 +2,19 @@
   "permissions": {
     "allow": [
       "mcp__engineering__eng_done",
-      "Bash(node dist/index.js:*)"
+      "Bash(node dist/index.js:*)",
+      "Bash(npm install:*)",
+      "Bash(npm run test:unit:*)",
+      "Bash(npm run test:coverage:*)",
+      "Bash(npm run test:integration:*)",
+      "Bash(npm test:*)",
+      "Bash(npx vitest:*)",
+      "Bash(if exist \"node_modules/.vite\" rmdir /s /q \"node_modules/.vite\")",
+      "Bash(npm uninstall:*)",
+      "Bash(node:*)",
+      "Bash(npm run build:*)",
+      "Bash(git checkout:*)",
+      "Bash(git add:*)"
     ]
   }
 }

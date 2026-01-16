@@ -1,0 +1,11 @@
+{
+  "name": "test-nodejs-javascript",
+  "version": "1.0.0",
+  "scripts": {
+    "start": "node index.js",
+    "test": "jest"
+  },
+  "dependencies": {
+    "lodash": "^4.17.21"
+  }
+}

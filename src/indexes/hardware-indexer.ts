@@ -30,8 +30,14 @@ interface HardwareIndex {
 
 // Patterns for detecting hardware configurations
 const PERIPHERAL_PATTERNS = [
-  // GPIO: GPIO_PIN_0, GPIOA, PA0, etc.
-  { regex: /GPIO[A-H]?_?(?:PIN_)?(\d+|[A-H]\d+)/gi, type: 'GPIO' },
+  // GPIO: GPIO_PIN_0, GPIOA, PA0, GPIO_NUM_X (ESP-IDF)
+  { regex: /GPIO[A-H]?_?(?:PIN_|NUM_)?(\d+|[A-H]\d+)/gi, type: 'GPIO' },
+  // Arduino pinMode: indicates GPIO usage
+  { regex: /pinMode\s*\(/gi, type: 'GPIO' },
+  // Arduino digitalWrite/digitalRead: indicates GPIO usage
+  { regex: /digital(?:Write|Read)\s*\(/gi, type: 'GPIO' },
+  // ESP-IDF gpio functions: gpio_set_level, gpio_get_level, etc.
+  { regex: /gpio_(?:set_level|get_level|set_direction|config)\s*\(/gi, type: 'GPIO' },
   // UART/USART: USART1, UART2, Serial1
   { regex: /U(?:S)?ART(\d+)|Serial(\d+)/gi, type: 'UART' },
   // SPI: SPI1, HSPI, VSPI

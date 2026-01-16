@@ -1,0 +1,8 @@
+[project]
+name = "test-python-project"
+version = "1.0.0"
+description = "A test Python project"
+requires-python = ">=3.9"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

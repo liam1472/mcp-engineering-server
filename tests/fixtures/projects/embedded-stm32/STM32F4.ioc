@@ -1,0 +1,9 @@
+#MicroXplorer Configuration settings - do not modify
+File.Version=6
+KeepUserPlacement=false
+Mcu.Family=STM32F4
+Mcu.Name=STM32F407VGTx
+PA0.Signal=GPIO_Output
+PA1.Signal=GPIO_Input
+PB0.Mode=Full_Duplex_Master
+PB0.Signal=SPI1_SCK

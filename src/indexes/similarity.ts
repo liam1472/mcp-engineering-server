@@ -67,8 +67,9 @@ export class SimilarityAnalyzer {
         const queryLineCount = codeSnippet.split('\n').length;
         const windowSize = Math.max(queryLineCount, 3);
 
-        for (let i = 0; i <= lines.length - windowSize; i++) {
-          const block = lines.slice(i, i + windowSize).join('\n');
+        // Handle files smaller than window size
+        if (lines.length < windowSize) {
+          const block = content;
           const normalizedBlock = this.normalizeCode(block);
           const blockTokens = this.tokenize(normalizedBlock);
 
@@ -77,11 +78,29 @@ export class SimilarityAnalyzer {
           if (similarity >= minSimilarity) {
             matches.push({
               file,
-              startLine: i + 1,
-              endLine: i + windowSize,
+              startLine: 1,
+              endLine: lines.length,
               similarity: Math.round(similarity),
               preview: this.createPreview(block),
             });
+          }
+        } else {
+          for (let i = 0; i <= lines.length - windowSize; i++) {
+            const block = lines.slice(i, i + windowSize).join('\n');
+            const normalizedBlock = this.normalizeCode(block);
+            const blockTokens = this.tokenize(normalizedBlock);
+
+            const similarity = this.calculateSimilarity(queryTokens, blockTokens);
+
+            if (similarity >= minSimilarity) {
+              matches.push({
+                file,
+                startLine: i + 1,
+                endLine: i + windowSize,
+                similarity: Math.round(similarity),
+                preview: this.createPreview(block),
+              });
+            }
           }
         }
       } catch {
