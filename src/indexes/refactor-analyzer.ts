@@ -1,0 +1,835 @@
+/**
+ * Refactor Analyzer
+ * Analyzes code for refactoring opportunities using duplicate detection
+ */
+
+import * as fs from 'fs/promises';
+import * as path from 'path';
+import { glob } from 'glob';
+import { DuplicateDetector } from './duplicate-detector.js';
+import type { DuplicateBlock } from '../types/index.js';
+
+export interface RefactorSuggestion {
+  type: 'extract-function' | 'extract-constant' | 'reduce-complexity' | 'remove-duplicate';
+  priority: 'high' | 'medium' | 'low';
+  title: string;
+  description: string;
+  files: string[];
+  lines?: number;
+  estimatedImpact: string;
+  fix?: RefactorFix;
+}
+
+export interface RefactorFix {
+  id: string;
+  type: 'extract-function' | 'extract-constant';
+  newCode: string;
+  replacements: Array<{
+    file: string;
+    startLine: number;
+    endLine: number;
+    oldCode: string;
+    newCode: string;
+  }>;
+  instructions: string;
+}
+
+export interface RefactorReport {
+  duplicates: DuplicateBlock[];
+  suggestions: RefactorSuggestion[];
+  stats: {
+    filesScanned: number;
+    duplicateBlocks: number;
+    totalDuplicateLines: number;
+    magicNumbers: number;
+    longFunctions: number;
+  };
+  summary: string;
+}
+
+export interface ApplyRefactorResult {
+  success: boolean;
+  filesModified: string[];
+  filesBackedUp: string[];
+  constantsAdded: number;
+  duplicatesFixed: number;
+  errors: string[];
+  manualInstructions: string[];
+  summary: string;
+}
+
+interface MagicNumber {
+  file: string;
+  line: number;
+  value: string;
+  context: string;
+}
+
+interface LongFunction {
+  file: string;
+  name: string;
+  startLine: number;
+  lines: number;
+}
+
+const FILE_EXTENSIONS = ['.ts', '.tsx', '.js', '.jsx', '.py', '.cs', '.go', '.rs', '.c', '.cpp'];
+const MAGIC_NUMBER_PATTERN = /(?<![a-zA-Z_])(\d{2,}|0x[0-9a-fA-F]{3,})(?![a-zA-Z_\d])/g;
+const ALLOWED_NUMBERS = new Set(['0', '1', '2', '10', '100', '1000', '60', '24', '365', '1024', '2048', '4096']);
+const LONG_FUNCTION_THRESHOLD = 50;
+
+// Patterns that should NOT be extracted as functions
+const NON_EXTRACTABLE_PATTERNS = [
+  /^#!\//, // Shebang lines
+  /^import\s/, // ES imports
+  /^export\s/, // ES exports
+  /^from\s+\S+\s+import/, // Python imports
+  /^require\s*\(/, // CommonJS require
+  /^using\s/, // C# using
+  /^#include/, // C/C++ includes
+  /^package\s/, // Go/Java package
+  /^\s*\/\*\*/, // JSDoc/block comment start
+  /^\s*\*/, // Comment continuation
+  /^\s*\/\//, // Line comments
+  /^\s*#(?!!)/, // Python/shell comments (not shebang)
+  /^type\s+\w+\s*=/, // TypeScript type aliases
+  /^interface\s/, // TypeScript interfaces
+  /^declare\s/, // TypeScript declarations
+  /^namespace\s/, // Namespaces
+  /^module\s/, // Module declarations
+];
+
+export class RefactorAnalyzer {
+  private workingDir: string;
+  private duplicateDetector: DuplicateDetector;
+
+  constructor(workingDir?: string) {
+    this.workingDir = workingDir ?? process.cwd();
+    this.duplicateDetector = new DuplicateDetector(this.workingDir);
+  }
+
+  /**
+   * Check if code block should be extracted as a function
+   * Returns false for imports, comments, type definitions, etc.
+   */
+  private shouldExtract(code: string): boolean {
+    const lines = code.split('\n').map(l => l.trim()).filter(l => l.length > 0);
+    if (lines.length === 0) return false;
+
+    // Check if ALL lines are non-extractable (imports, comments, etc.)
+    const nonExtractableLines = lines.filter(line =>
+      NON_EXTRACTABLE_PATTERNS.some(pattern => pattern.test(line))
+    );
+
+    // If more than 70% of lines are non-extractable, skip this block
+    if (nonExtractableLines.length / lines.length > 0.7) {
+      return false;
+    }
+
+    // Check first line specifically - if it starts with import/export/shebang, skip
+    const firstLine = lines[0] ?? '';
+    if (/^(import|export|#!|require|using|#include|package|from\s+\S+\s+import)/.test(firstLine)) {
+      return false;
+    }
+
+    return true;
+  }
+
+  async analyze(options: { generateFixes?: boolean } = {}): Promise<RefactorReport> {
+    // Run duplicate detection
+    const allDuplicates = await this.duplicateDetector.scan();
+
+    // Filter out non-extractable duplicates (imports, comments, etc.)
+    const duplicates = allDuplicates.filter(dup => this.shouldExtract(dup.preview));
+
+    // Find magic numbers
+    const magicNumbers = await this.findMagicNumbers();
+
+    // Find long functions
+    const longFunctions = await this.findLongFunctions();
+
+    // Generate suggestions
+    let suggestions = this.generateSuggestions(duplicates, magicNumbers, longFunctions);
+
+    // Generate fixes if requested
+    if (options.generateFixes) {
+      suggestions = await this.addFixes(suggestions, duplicates, magicNumbers);
+    }
+
+    // Calculate stats
+    const files = await glob(FILE_EXTENSIONS.map(ext => `**/*${ext}`), {
+      cwd: this.workingDir,
+      nodir: true,
+      ignore: ['**/node_modules/**', '**/dist/**', '**/build/**', '**/.git/**'],
+    });
+
+    const totalDuplicateLines = duplicates.reduce(
+      (sum, d) => sum + d.lines * d.occurrences.length,
+      0
+    );
+
+    const stats = {
+      filesScanned: files.length,
+      duplicateBlocks: duplicates.length,
+      totalDuplicateLines,
+      magicNumbers: magicNumbers.length,
+      longFunctions: longFunctions.length,
+    };
+
+    return {
+      duplicates,
+      suggestions,
+      stats,
+      summary: this.generateSummary(stats, suggestions),
+    };
+  }
+
+  private async findMagicNumbers(): Promise<MagicNumber[]> {
+    const magicNumbers: MagicNumber[] = [];
+    const files = await glob(FILE_EXTENSIONS.map(ext => `**/*${ext}`), {
+      cwd: this.workingDir,
+      nodir: true,
+      ignore: ['**/node_modules/**', '**/dist/**', '**/build/**', '**/.git/**', '**/*.test.*', '**/*.spec.*'],
+    });
+
+    for (const file of files.slice(0, 100)) { // Limit for performance
+      try {
+        const fullPath = path.join(this.workingDir, file);
+        const content = await fs.readFile(fullPath, 'utf-8');
+        const lines = content.split('\n');
+
+        for (let i = 0; i < lines.length; i++) {
+          const line = lines[i];
+          if (!line) continue;
+
+          // Skip comments and imports
+          const trimmedLine = line.trim();
+          if (trimmedLine.startsWith('//') || trimmedLine.startsWith('#') ||
+              trimmedLine.startsWith('import') || trimmedLine.startsWith('const ')) continue;
+
+          let match;
+          while ((match = MAGIC_NUMBER_PATTERN.exec(line)) !== null) {
+            const value = match[1];
+            if (value && !ALLOWED_NUMBERS.has(value)) {
+              magicNumbers.push({
+                file,
+                line: i + 1,
+                value,
+                context: trimmedLine.slice(0, 80),
+              });
+            }
+          }
+        }
+      } catch {
+        // Skip unreadable files
+      }
+    }
+
+    return magicNumbers.slice(0, 50); // Limit results
+  }
+
+  private async findLongFunctions(): Promise<LongFunction[]> {
+    const longFunctions: LongFunction[] = [];
+    const files = await glob(['**/*.ts', '**/*.js', '**/*.py', '**/*.go'], {
+      cwd: this.workingDir,
+      nodir: true,
+      ignore: ['**/node_modules/**', '**/dist/**', '**/build/**', '**/.git/**'],
+    });
+
+    // Function detection patterns
+    const patterns = [
+      // TypeScript/JavaScript
+      /(?:async\s+)?(?:function\s+(\w+)|(?:const|let|var)\s+(\w+)\s*=\s*(?:async\s+)?(?:function|\([^)]*\)\s*=>))/,
+      // Python
+      /def\s+(\w+)\s*\(/,
+      // Go
+      /func\s+(?:\([^)]+\)\s+)?(\w+)\s*\(/,
+    ];
+
+    for (const file of files.slice(0, 100)) {
+      try {
+        const fullPath = path.join(this.workingDir, file);
+        const content = await fs.readFile(fullPath, 'utf-8');
+        const lines = content.split('\n');
+
+        let currentFunction: { name: string; startLine: number } | null = null;
+        let braceDepth = 0;
+        let indentLevel = -1;
+
+        for (let i = 0; i < lines.length; i++) {
+          const line = lines[i] ?? '';
+
+          // Check for function start
+          for (const pattern of patterns) {
+            const match = pattern.exec(line);
+            if (match) {
+              if (currentFunction && i - currentFunction.startLine > LONG_FUNCTION_THRESHOLD) {
+                longFunctions.push({
+                  file,
+                  name: currentFunction.name,
+                  startLine: currentFunction.startLine,
+                  lines: i - currentFunction.startLine,
+                });
+              }
+              currentFunction = {
+                name: match[1] ?? match[2] ?? 'anonymous',
+                startLine: i + 1,
+              };
+              braceDepth = 0;
+              indentLevel = line.search(/\S/);
+              break;
+            }
+          }
+
+          // Track brace depth for function end
+          braceDepth += (line.match(/{/g) ?? []).length;
+          braceDepth -= (line.match(/}/g) ?? []).length;
+
+          // Python-style: track by indentation
+          if (file.endsWith('.py') && currentFunction) {
+            const currentIndent = line.search(/\S/);
+            if (currentIndent !== -1 && currentIndent <= indentLevel && i > currentFunction.startLine) {
+              if (i - currentFunction.startLine > LONG_FUNCTION_THRESHOLD) {
+                longFunctions.push({
+                  file,
+                  name: currentFunction.name,
+                  startLine: currentFunction.startLine,
+                  lines: i - currentFunction.startLine,
+                });
+              }
+              currentFunction = null;
+            }
+          }
+        }
+
+        // Handle last function
+        if (currentFunction && lines.length - currentFunction.startLine > LONG_FUNCTION_THRESHOLD) {
+          longFunctions.push({
+            file,
+            name: currentFunction.name,
+            startLine: currentFunction.startLine,
+            lines: lines.length - currentFunction.startLine,
+          });
+        }
+      } catch {
+        // Skip unreadable files
+      }
+    }
+
+    return longFunctions.sort((a, b) => b.lines - a.lines).slice(0, 20);
+  }
+
+  private generateSuggestions(
+    duplicates: DuplicateBlock[],
+    magicNumbers: MagicNumber[],
+    longFunctions: LongFunction[]
+  ): RefactorSuggestion[] {
+    const suggestions: RefactorSuggestion[] = [];
+    const seenHashes = new Set<string>();
+
+    // Suggestions from duplicates - deduplicate by hash
+    for (const dup of duplicates.slice(0, 20)) {
+      // Skip if we've already seen this hash
+      if (seenHashes.has(dup.hash)) continue;
+      seenHashes.add(dup.hash);
+
+      const files = [...new Set(dup.occurrences.map(o => o.file))];
+      const funcName = this.generateFunctionName(dup.preview);
+
+      suggestions.push({
+        type: 'remove-duplicate',
+        priority: dup.occurrences.length >= 3 ? 'high' : 'medium',
+        title: `Extract to ${funcName}() - ${dup.lines} lines, ${dup.occurrences.length} occurrences`,
+        description: `Found ${dup.occurrences.length} occurrences of similar code.\nPreview: ${dup.preview}`,
+        files,
+        lines: dup.lines * dup.occurrences.length,
+        estimatedImpact: `Remove ~${dup.lines * (dup.occurrences.length - 1)} duplicate lines`,
+      });
+
+      // Limit to 10 duplicate suggestions
+      if (suggestions.filter(s => s.type === 'remove-duplicate').length >= 10) break;
+    }
+
+    // Suggestions from magic numbers (group by file)
+    const magicByFile = new Map<string, MagicNumber[]>();
+    for (const mn of magicNumbers) {
+      const existing = magicByFile.get(mn.file) ?? [];
+      existing.push(mn);
+      magicByFile.set(mn.file, existing);
+    }
+
+    for (const [file, numbers] of magicByFile) {
+      if (numbers.length >= 3) {
+        suggestions.push({
+          type: 'extract-constant',
+          priority: numbers.length >= 5 ? 'medium' : 'low',
+          title: `Extract magic numbers in ${path.basename(file)}`,
+          description: `Found ${numbers.length} magic numbers. Consider defining as named constants:\n${numbers.slice(0, 3).map(n => `  Line ${n.line}: ${n.value}`).join('\n')}`,
+          files: [file],
+          estimatedImpact: 'Improved code readability and maintainability',
+        });
+      }
+    }
+
+    // Suggestions from long functions
+    for (const fn of longFunctions.slice(0, 5)) {
+      suggestions.push({
+        type: 'reduce-complexity',
+        priority: fn.lines > 100 ? 'high' : 'medium',
+        title: `Split long function: ${fn.name}`,
+        description: `Function "${fn.name}" is ${fn.lines} lines. Consider breaking into smaller, focused functions.`,
+        files: [fn.file],
+        lines: fn.lines,
+        estimatedImpact: 'Improved testability and maintainability',
+      });
+    }
+
+    // Sort by priority
+    const priorityOrder = { high: 0, medium: 1, low: 2 };
+    return suggestions.sort((a, b) => priorityOrder[a.priority] - priorityOrder[b.priority]);
+  }
+
+  private async addFixes(
+    suggestions: RefactorSuggestion[],
+    duplicates: DuplicateBlock[],
+    magicNumbers: MagicNumber[]
+  ): Promise<RefactorSuggestion[]> {
+    const result: RefactorSuggestion[] = [];
+    const usedDupHashes = new Set<string>();
+
+    for (const suggestion of suggestions) {
+      if (suggestion.type === 'remove-duplicate') {
+        // Find the corresponding duplicate block by matching lines count and occurrences
+        // Extract info from title format: "Extract to funcName() - X lines, Y occurrences"
+        const titleMatch = suggestion.title.match(/(\d+)\s+lines,\s+(\d+)\s+occurrences/);
+        const lines = titleMatch ? parseInt(titleMatch[1] ?? '0', 10) : 0;
+        const occurrences = titleMatch ? parseInt(titleMatch[2] ?? '0', 10) : 0;
+
+        const dup = duplicates.find(d =>
+          d.lines === lines &&
+          d.occurrences.length === occurrences &&
+          !usedDupHashes.has(d.hash)
+        );
+
+        if (dup && dup.occurrences.length > 0) {
+          usedDupHashes.add(dup.hash);
+          const fix = await this.generateDuplicateFix(dup);
+          result.push({ ...suggestion, fix });
+        } else {
+          result.push(suggestion);
+        }
+      } else if (suggestion.type === 'extract-constant') {
+        // Generate constant extraction fix
+        const file = suggestion.files[0];
+        if (file) {
+          const fileNumbers = magicNumbers.filter(n => n.file === file);
+          const fix = this.generateConstantFix(file, fileNumbers);
+          result.push({ ...suggestion, fix });
+        } else {
+          result.push(suggestion);
+        }
+      } else {
+        result.push(suggestion);
+      }
+    }
+
+    return result;
+  }
+
+  private async generateDuplicateFix(dup: DuplicateBlock): Promise<RefactorFix> {
+    const firstOccurrence = dup.occurrences[0];
+    if (!firstOccurrence) {
+      return this.createEmptyFix('duplicate');
+    }
+
+    // Read the actual code from the first occurrence
+    let originalCode = '';
+    try {
+      const fullPath = path.join(this.workingDir, firstOccurrence.file);
+      const content = await fs.readFile(fullPath, 'utf-8');
+      const lines = content.split('\n');
+      originalCode = lines.slice(firstOccurrence.startLine - 1, firstOccurrence.endLine).join('\n');
+    } catch {
+      originalCode = dup.preview;
+    }
+
+    // Generate function name from the code
+    const funcName = this.generateFunctionName(originalCode);
+
+    // Detect language from first file
+    const ext = path.extname(firstOccurrence.file);
+    const isTypeScript = ext === '.ts' || ext === '.tsx';
+    const isPython = ext === '.py';
+    const isGo = ext === '.go';
+
+    // Generate the extracted function
+    let extractedFunction = '';
+    let callSyntax = '';
+
+    if (isPython) {
+      extractedFunction = `def ${funcName}():\n${this.indent(originalCode, '    ')}\n`;
+      callSyntax = `${funcName}()`;
+    } else if (isGo) {
+      extractedFunction = `func ${funcName}() {\n${this.indent(originalCode, '\t')}\n}\n`;
+      callSyntax = `${funcName}()`;
+    } else {
+      // TypeScript/JavaScript
+      extractedFunction = `function ${funcName}(): void {\n${this.indent(originalCode, '  ')}\n}\n`;
+      callSyntax = `${funcName}();`;
+    }
+
+    // Generate replacements for each occurrence
+    const replacements = dup.occurrences.map(occ => ({
+      file: occ.file,
+      startLine: occ.startLine,
+      endLine: occ.endLine,
+      oldCode: `Lines ${occ.startLine}-${occ.endLine}`,
+      newCode: callSyntax,
+    }));
+
+    return {
+      id: `fix_dup_${dup.hash}`,
+      type: 'extract-function',
+      newCode: extractedFunction,
+      replacements,
+      instructions: `1. Add this function to a shared module:\n\n${extractedFunction}\n\n2. Replace ${dup.occurrences.length} occurrences with: ${callSyntax}\n\nFiles to update:\n${dup.occurrences.map(o => `  - ${o.file}:${o.startLine}`).join('\n')}`,
+    };
+  }
+
+  private generateConstantFix(file: string, numbers: MagicNumber[]): RefactorFix {
+    const ext = path.extname(file);
+    const isPython = ext === '.py';
+    const isGo = ext === '.go';
+
+    // Generate constant definitions
+    const constants: string[] = [];
+    const replacements: RefactorFix['replacements'] = [];
+
+    for (const num of numbers.slice(0, 10)) {
+      const constName = this.generateConstantName(num.value, num.context);
+
+      if (isPython) {
+        constants.push(`${constName} = ${num.value}`);
+      } else if (isGo) {
+        constants.push(`const ${constName} = ${num.value}`);
+      } else {
+        constants.push(`const ${constName} = ${num.value};`);
+      }
+
+      replacements.push({
+        file: num.file,
+        startLine: num.line,
+        endLine: num.line,
+        oldCode: num.value,
+        newCode: constName,
+      });
+    }
+
+    const newCode = constants.join('\n');
+
+    return {
+      id: `fix_const_${path.basename(file)}`,
+      type: 'extract-constant',
+      newCode,
+      replacements,
+      instructions: `1. Add these constants at the top of the file:\n\n${newCode}\n\n2. Replace magic numbers:\n${replacements.map(r => `  Line ${r.startLine}: ${r.oldCode} → ${r.newCode}`).join('\n')}`,
+    };
+  }
+
+  private generateFunctionName(code: string): string {
+    const lowerCode = code.toLowerCase();
+
+    // Pattern-based name generation - analyze what the code does
+    const patterns: Array<{ pattern: RegExp; name: string }> = [
+      // File operations
+      { pattern: /fs\.readfile|readfile/i, name: 'readFileContent' },
+      { pattern: /fs\.writefile|writefile/i, name: 'writeFileContent' },
+      { pattern: /fs\.mkdir|mkdir/i, name: 'createDirectory' },
+      { pattern: /fs\.readdir|readdir/i, name: 'listDirectory' },
+
+      // Constructor patterns
+      { pattern: /constructor\s*\(\s*workingdir/i, name: 'initializeWorkingDir' },
+      { pattern: /constructor/i, name: 'initialize' },
+
+      // Return patterns
+      { pattern: /return\s*\{\s*content\s*:\s*\[/i, name: 'createMcpResponse' },
+      { pattern: /return\s*\{/i, name: 'createResponse' },
+
+      // Path operations
+      { pattern: /path\.join/i, name: 'buildPath' },
+      { pattern: /path\.resolve/i, name: 'resolvePath' },
+
+      // Async/await patterns
+      { pattern: /await\s+fs\./i, name: 'performFileOperation' },
+      { pattern: /await\s+fetch/i, name: 'fetchData' },
+
+      // Error handling
+      { pattern: /try\s*\{[\s\S]*catch/i, name: 'handleWithErrorCatch' },
+      { pattern: /throw\s+new\s+error/i, name: 'throwError' },
+
+      // Array/object operations
+      { pattern: /\.map\s*\(/i, name: 'transformItems' },
+      { pattern: /\.filter\s*\(/i, name: 'filterItems' },
+      { pattern: /\.reduce\s*\(/i, name: 'aggregateItems' },
+      { pattern: /\.foreach\s*\(/i, name: 'processItems' },
+
+      // Loop patterns
+      { pattern: /for\s*\(\s*(?:let|const|var)\s+\w+\s+of/i, name: 'iterateCollection' },
+      { pattern: /for\s*\(\s*(?:let|const|var)\s+\w+\s*=/i, name: 'iterateWithIndex' },
+
+      // Conditional patterns
+      { pattern: /if\s*\(\s*!\s*\w+/i, name: 'checkNegativeCondition' },
+      { pattern: /if\s*\(/i, name: 'checkCondition' },
+
+      // Glob/scan patterns
+      { pattern: /glob\s*\(/i, name: 'scanFiles' },
+      { pattern: /\.scan\s*\(/i, name: 'performScan' },
+
+      // Content split
+      { pattern: /\.split\s*\(\s*['"`]\\n['"`]\s*\)/i, name: 'splitIntoLines' },
+    ];
+
+    for (const { pattern, name } of patterns) {
+      if (pattern.test(code)) {
+        return name;
+      }
+    }
+
+    // Fallback: extract verbs and nouns from code
+    const verbMatches = code.match(/\b(get|set|create|build|parse|format|validate|process|handle|init|load|save|read|write|find|search|check|update|delete|remove|add|insert)\w*/gi);
+    if (verbMatches && verbMatches.length > 0) {
+      const verb = verbMatches[0] ?? 'process';
+      // Clean up and format
+      const cleanVerb = verb.charAt(0).toLowerCase() + verb.slice(1);
+      return cleanVerb.length > 20 ? cleanVerb.slice(0, 20) : cleanVerb;
+    }
+
+    // Last resort: use generic name with counter suffix
+    return 'extractedBlock';
+  }
+
+  private generateConstantName(value: string, context: string): string {
+    // Try to infer name from context
+    const contextWords = context
+      .replace(/[^a-zA-Z\s]/g, ' ')
+      .split(/\s+/)
+      .filter(w => w.length > 2)
+      .slice(0, 2);
+
+    if (contextWords.length > 0) {
+      return contextWords.map(w => w.toUpperCase()).join('_') + '_VALUE';
+    }
+    return `MAGIC_${value}`;
+  }
+
+  private indent(code: string, prefix: string): string {
+    return code.split('\n').map(line => prefix + line).join('\n');
+  }
+
+  private createEmptyFix(type: string): RefactorFix {
+    return {
+      id: `fix_${type}_empty`,
+      type: 'extract-function',
+      newCode: '',
+      replacements: [],
+      instructions: 'Unable to generate fix automatically.',
+    };
+  }
+
+  private generateSummary(
+    stats: RefactorReport['stats'],
+    suggestions: RefactorSuggestion[]
+  ): string {
+    const lines: string[] = [];
+
+    lines.push('=== Refactor Analysis Summary ===\n');
+    lines.push(`Scanned: ${stats.filesScanned} files`);
+    lines.push(`Duplicate blocks: ${stats.duplicateBlocks} (${stats.totalDuplicateLines} total lines)`);
+    lines.push(`Magic numbers: ${stats.magicNumbers}`);
+    lines.push(`Long functions: ${stats.longFunctions}\n`);
+
+    if (suggestions.length === 0) {
+      lines.push('No significant refactoring opportunities found.');
+    } else {
+      const highPriority = suggestions.filter(s => s.priority === 'high').length;
+      const mediumPriority = suggestions.filter(s => s.priority === 'medium').length;
+
+      lines.push(`Found ${suggestions.length} suggestions:`);
+      if (highPriority > 0) lines.push(`  - ${highPriority} high priority`);
+      if (mediumPriority > 0) lines.push(`  - ${mediumPriority} medium priority`);
+
+      lines.push('\nTop suggestions:');
+      for (const suggestion of suggestions.slice(0, 5)) {
+        const icon = suggestion.priority === 'high' ? '!' : suggestion.priority === 'medium' ? '*' : '-';
+        lines.push(`  ${icon} [${suggestion.priority.toUpperCase()}] ${suggestion.title}`);
+        lines.push(`    Impact: ${suggestion.estimatedImpact}`);
+      }
+    }
+
+    return lines.join('\n');
+  }
+
+  setWorkingDir(dir: string): void {
+    this.workingDir = dir;
+    this.duplicateDetector.setWorkingDir(dir);
+  }
+
+  /**
+   * Apply refactor fixes - actually modify files
+   * Creates backups before modifying
+   * Only applies safe fixes (constants); duplicates get manual instructions
+   */
+  async applyFixes(report: RefactorReport): Promise<ApplyRefactorResult> {
+    const result: ApplyRefactorResult = {
+      success: false,
+      filesModified: [],
+      filesBackedUp: [],
+      constantsAdded: 0,
+      duplicatesFixed: 0,
+      errors: [],
+      manualInstructions: [],
+      summary: '',
+    };
+
+    if (report.suggestions.length === 0) {
+      result.success = true;
+      result.summary = 'No refactoring suggestions to apply.';
+      return result;
+    }
+
+    try {
+      // Group fixes by type
+      const constantFixes = report.suggestions.filter(s => s.type === 'extract-constant' && s.fix);
+      const duplicateFixes = report.suggestions.filter(s => s.type === 'remove-duplicate' && s.fix);
+
+      // Apply constant fixes (safe to auto-apply)
+      for (const suggestion of constantFixes) {
+        if (!suggestion.fix) continue;
+
+        const file = suggestion.files[0];
+        if (!file) continue;
+
+        try {
+          await this.applyConstantFix(file, suggestion.fix, result);
+        } catch (error) {
+          result.errors.push(`Failed to apply constant fix to ${file}: ${String(error)}`);
+        }
+      }
+
+      // For duplicate fixes, generate manual instructions (too risky for auto-apply)
+      for (const suggestion of duplicateFixes) {
+        if (!suggestion.fix) continue;
+
+        result.manualInstructions.push(`\n=== ${suggestion.title} ===`);
+        result.manualInstructions.push(suggestion.fix.instructions);
+        result.duplicatesFixed++;
+      }
+
+      // Generate summary
+      result.success = result.errors.length === 0;
+      const parts: string[] = [];
+
+      if (result.filesModified.length > 0) {
+        parts.push(`Modified ${result.filesModified.length} file(s)`);
+      }
+      if (result.filesBackedUp.length > 0) {
+        parts.push(`Created ${result.filesBackedUp.length} backup(s)`);
+      }
+      if (result.constantsAdded > 0) {
+        parts.push(`Added ${result.constantsAdded} constant(s)`);
+      }
+      if (result.duplicatesFixed > 0) {
+        parts.push(`${result.duplicatesFixed} duplicate fix(es) require manual review`);
+      }
+      if (result.errors.length > 0) {
+        parts.push(`${result.errors.length} error(s)`);
+      }
+
+      result.summary = `✓ Refactor fix applied:\n  ${parts.join('\n  ')}`;
+
+      if (result.filesBackedUp.length > 0) {
+        result.summary += `\n\nBackups created:\n  ${result.filesBackedUp.join('\n  ')}`;
+      }
+
+      if (result.filesModified.length > 0) {
+        result.summary += `\n\nFiles modified:\n  ${result.filesModified.join('\n  ')}`;
+      }
+
+      if (result.errors.length > 0) {
+        result.summary += `\n\nErrors:\n  ${result.errors.join('\n  ')}`;
+      }
+
+      if (result.manualInstructions.length > 0) {
+        result.summary += `\n\n=== Manual Instructions for Duplicates ===`;
+        result.summary += result.manualInstructions.join('\n');
+      }
+
+      return result;
+    } catch (error) {
+      result.errors.push(`Apply failed: ${String(error)}`);
+      result.summary = `✗ Refactor fix failed: ${String(error)}`;
+      return result;
+    }
+  }
+
+  private async applyConstantFix(
+    file: string,
+    fix: RefactorFix,
+    result: ApplyRefactorResult
+  ): Promise<void> {
+    const fullPath = path.join(this.workingDir, file);
+    const backupPath = fullPath + '.bak';
+
+    // Read original file
+    const content = await fs.readFile(fullPath, 'utf-8');
+
+    // Create backup
+    await fs.writeFile(backupPath, content, 'utf-8');
+    result.filesBackedUp.push(file + '.bak');
+
+    const lines = content.split('\n');
+
+    // Find the best place to insert constants (after imports, before code)
+    let insertLine = 0;
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i]?.trim() ?? '';
+      // Skip past imports, empty lines, and comments at the top
+      if (line.startsWith('import ') || line.startsWith('from ') ||
+          line.startsWith('//') || line.startsWith('/*') || line.startsWith('*') ||
+          line.startsWith('#') || line.startsWith('using ') ||
+          line === '' || line.startsWith('"use ')) {
+        insertLine = i + 1;
+      } else if (line.length > 0 && !line.startsWith('export ')) {
+        // Found first non-import line that's not an export
+        break;
+      }
+    }
+
+    // Insert constants
+    const constantLines = fix.newCode.split('\n');
+    lines.splice(insertLine, 0, '', ...constantLines, '');
+
+    // Apply replacements (adjust line numbers for inserted constants)
+    const lineOffset = constantLines.length + 2; // +2 for empty lines
+
+    // Sort replacements by line number descending to preserve line numbers
+    const sortedReplacements = [...fix.replacements].sort((a, b) => b.startLine - a.startLine);
+
+    for (const r of sortedReplacements) {
+      // Only process replacements for this file
+      if (r.file !== file) continue;
+
+      const adjustedLine = r.startLine + lineOffset - 1; // -1 for 0-based index
+      if (adjustedLine >= 0 && adjustedLine < lines.length) {
+        const line = lines[adjustedLine];
+        if (line && line.includes(r.oldCode)) {
+          lines[adjustedLine] = line.replace(r.oldCode, r.newCode);
+          result.constantsAdded++;
+        }
+      }
+    }
+
+    // Write modified file
+    await fs.writeFile(fullPath, lines.join('\n'), 'utf-8');
+    result.filesModified.push(file);
+  }
+}

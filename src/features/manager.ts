@@ -6,6 +6,8 @@
 import * as fs from 'fs/promises';
 import * as path from 'path';
 import { stringify, parse } from 'yaml';
+import { KnowledgeExtractor } from '../knowledge/extractor.js';
+import type { KnowledgeEntry } from '../types/index.js';
 
 interface FeatureManifest {
   name: string;
@@ -25,11 +27,13 @@ export class FeatureManager {
   private workingDir: string;
   private featuresDir: string;
   private archiveDir: string;
+  private knowledgeExtractor: KnowledgeExtractor;
 
   constructor(workingDir?: string) {
     this.workingDir = workingDir ?? process.cwd();
     this.featuresDir = path.join(this.workingDir, '.engineering', 'features');
     this.archiveDir = path.join(this.workingDir, '.engineering', 'archive');
+    this.knowledgeExtractor = new KnowledgeExtractor(this.workingDir);
   }
 
   async startFeature(name: string): Promise<FeatureManifest> {
@@ -103,7 +107,9 @@ export class FeatureManager {
     return null;
   }
 
-  async completeFeature(name: string): Promise<string> {
+  async completeFeature(
+    name: string
+  ): Promise<{ archivePath: string; knowledgeExtracted: KnowledgeEntry[] }> {
     const featureDir = path.join(this.featuresDir, name);
     const manifestPath = path.join(featureDir, 'manifest.yaml');
 
@@ -114,6 +120,10 @@ export class FeatureManager {
 
     await fs.writeFile(manifestPath, stringify(manifest, { indent: 2 }), 'utf-8');
 
+    // Extract knowledge before archiving
+    const knowledgeExtracted = await this.knowledgeExtractor.extractFromFeature(featureDir);
+    await this.knowledgeExtractor.saveKnowledge(knowledgeExtracted);
+
     // Archive the feature
     const date = new Date().toISOString().split('T')[0];
     const archiveName = `${date}_${name}`;
@@ -122,7 +132,7 @@ export class FeatureManager {
     await fs.mkdir(this.archiveDir, { recursive: true });
     await fs.rename(featureDir, archivePath);
 
-    return archivePath;
+    return { archivePath, knowledgeExtracted };
   }
 
   async listFeatures(): Promise<Array<{ name: string; status: string; startedAt: string }>> {
@@ -162,5 +172,10 @@ export class FeatureManager {
     this.workingDir = dir;
     this.featuresDir = path.join(dir, '.engineering', 'features');
     this.archiveDir = path.join(dir, '.engineering', 'archive');
+    this.knowledgeExtractor.setWorkingDir(dir);
+  }
+
+  getKnowledgeExtractor(): KnowledgeExtractor {
+    return this.knowledgeExtractor;
   }
 }

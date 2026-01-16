@@ -96,3 +96,77 @@ export const EngConfigSchema = z.object({
 });
 
 export type EngConfig = z.infer<typeof EngConfigSchema>;
+
+// Knowledge entry (extracted on eng_done)
+export const KnowledgeEntrySchema = z.object({
+  id: z.string(),
+  type: z.enum(['pattern', 'solution', 'bug', 'decision', 'tip']),
+  title: z.string(),
+  content: z.string(),
+  tags: z.array(z.string()),
+  source: z.object({
+    feature: z.string(),
+    files: z.array(z.string()),
+    date: z.string(),
+  }),
+});
+
+export type KnowledgeEntry = z.infer<typeof KnowledgeEntrySchema>;
+
+// Knowledge base
+export const KnowledgeBaseSchema = z.object({
+  version: z.string(),
+  entries: z.array(KnowledgeEntrySchema),
+  lastUpdated: z.string(),
+});
+
+export type KnowledgeBase = z.infer<typeof KnowledgeBaseSchema>;
+
+// Duplicate code detection
+export const DuplicateBlockSchema = z.object({
+  hash: z.string(),
+  lines: z.number(),
+  occurrences: z.array(
+    z.object({
+      file: z.string(),
+      startLine: z.number(),
+      endLine: z.number(),
+    })
+  ),
+  preview: z.string(),
+});
+
+export type DuplicateBlock = z.infer<typeof DuplicateBlockSchema>;
+
+// Project-specific index: Routes (for web projects)
+export const RouteIndexEntrySchema = z.object({
+  method: z.enum(['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS', 'HEAD', 'ALL']),
+  path: z.string(),
+  handler: z.string(),
+  file: z.string(),
+  line: z.number(),
+  middleware: z.array(z.string()).optional(),
+});
+
+export type RouteIndexEntry = z.infer<typeof RouteIndexEntrySchema>;
+
+// Project-specific index: Hardware (for embedded projects)
+export const HardwareConfigSchema = z.object({
+  peripherals: z.array(
+    z.object({
+      type: z.string(), // GPIO, UART, SPI, I2C, etc
+      name: z.string(),
+      pins: z.array(z.string()),
+      file: z.string(),
+      line: z.number(),
+    })
+  ),
+  defines: z.array(
+    z.object({
+      name: z.string(),
+      value: z.string(),
+      file: z.string(),
+      line: z.number(),
+    })
+  ),
+});

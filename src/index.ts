@@ -67,6 +67,14 @@ import { ProjectDetector } from './core/project-detector.js';
 import { ConfigManager } from './core/config.js';
 import { SecurityScanner } from './security/scanner.js';
 import { FunctionIndexer } from './indexes/function-indexer.js';
+import { DuplicateDetector } from './indexes/duplicate-detector.js';
+import { RouteIndexer } from './indexes/route-indexer.js';
+import { HardwareIndexer } from './indexes/hardware-indexer.js';
+import { DependencyAnalyzer } from './indexes/dependency-graph.js';
+import { RefactorAnalyzer } from './indexes/refactor-analyzer.js';
+import { SimilarityAnalyzer } from './indexes/similarity.js';
+import { ValidationPipeline } from './validation/pipeline.js';
+import { ReviewChecker } from './validation/review-checker.js';
 import { FeatureManager } from './features/manager.js';
 import { ContextManager } from './sessions/context-manager.js';
 import { SessionCoordinator } from './sessions/coordinator.js';
@@ -88,6 +96,14 @@ const projectDetector = new ProjectDetector();
 const configManager = new ConfigManager();
 const securityScanner = new SecurityScanner();
 const functionIndexer = new FunctionIndexer();
+const duplicateDetector = new DuplicateDetector();
+const routeIndexer = new RouteIndexer();
+const hardwareIndexer = new HardwareIndexer();
+const dependencyAnalyzer = new DependencyAnalyzer();
+const refactorAnalyzer = new RefactorAnalyzer();
+const similarityAnalyzer = new SimilarityAnalyzer();
+const validationPipeline = new ValidationPipeline();
+const reviewChecker = new ReviewChecker();
 const featureManager = new FeatureManager();
 const contextManager = new ContextManager();
 const sessionCoordinator = new SessionCoordinator();
@@ -181,6 +197,10 @@ server.setRequestHandler(CallToolRequestSchema, async request => {
 
     case 'eng_security': {
       try {
+        const securityArgs = args as { fix?: boolean; dryRun?: boolean } | undefined;
+        const shouldFix = securityArgs?.fix === true;
+        const dryRun = securityArgs?.dryRun === true;
+
         const findings = await securityScanner.scan();
 
         if (findings.length === 0) {
@@ -218,6 +238,24 @@ server.setRequestHandler(CallToolRequestSchema, async request => {
           report += `OTHER (${other.length}):\n`;
           for (const f of other) {
             report += `  • ${f.file}:${f.line} - ${f.pattern}\n`;
+          }
+        }
+
+        // Handle fix mode
+        if (shouldFix) {
+          if (dryRun) {
+            // Dry run: show what would be changed
+            const fix = await securityScanner.generateFixes(findings);
+            report += '\n\n=== DRY RUN - Preview of changes ===\n';
+            report += fix.instructions;
+            report += '\n\n--- .env file content (would be created) ---\n' + fix.envFile;
+            report += '\n\n--- .env.example file content (would be created) ---\n' + fix.envExampleFile;
+            report += '\n\n--- .gitignore entries (would be added) ---\n' + fix.gitignoreEntry;
+            report += '\n\nRun with --fix (without --dry-run) to apply these changes.';
+          } else {
+            // Actually apply fixes
+            const result = await securityScanner.applyFixes(findings);
+            report += '\n\n' + result.summary;
           }
         }
 
@@ -266,17 +304,54 @@ server.setRequestHandler(CallToolRequestSchema, async request => {
 
         const manifest = await featureManager.startFeature(featureName);
 
+        // Search knowledge base for related entries
+        const knowledgeExtractor = featureManager.getKnowledgeExtractor();
+        const relatedKnowledge = await knowledgeExtractor.searchKnowledge(featureName);
+
+        // Check project type for hardware relevance
+        const config = await configManager.load();
+        const isEmbedded = config.projectType.startsWith('embedded-');
+
+        let resultText =
+          `✓ Started feature "${featureName}"\n` +
+          `  Directory: .engineering/features/${featureName}/\n` +
+          `  Started: ${manifest.startedAt}\n`;
+
+        // Show related knowledge if any
+        if (relatedKnowledge.length > 0) {
+          resultText += `\nRelated knowledge (${relatedKnowledge.length} entries):\n`;
+          for (const entry of relatedKnowledge.slice(0, 3)) {
+            resultText += `  • [${entry.type}] ${entry.title}\n`;
+          }
+          if (relatedKnowledge.length > 3) {
+            resultText += `  ...use /eng-knowledge "${featureName}" for more\n`;
+          }
+        }
+
+        // Hardware check for embedded projects
+        if (isEmbedded) {
+          try {
+            const hwIndex = await hardwareIndexer.scan();
+            if (hwIndex.peripherals.length > 0) {
+              resultText += `\nHardware available (${hwIndex.peripherals.length} peripherals):\n`;
+              const byType = new Map<string, number>();
+              for (const p of hwIndex.peripherals) {
+                byType.set(p.type, (byType.get(p.type) ?? 0) + 1);
+              }
+              for (const [type, count] of byType) {
+                resultText += `  • ${type}: ${count}\n`;
+              }
+              resultText += `  Use /eng-hardware for details\n`;
+            }
+          } catch {
+            // Hardware scan failed, skip silently
+          }
+        }
+
+        resultText += `\nTrack progress with eng_validate, complete with eng_done.`;
+
         return {
-          content: [
-            {
-              type: 'text',
-              text:
-                `✓ Started feature "${featureName}"\n` +
-                `  Directory: .engineering/features/${featureName}/\n` +
-                `  Started: ${manifest.startedAt}\n\n` +
-                `Track progress with eng_validate, complete with eng_done.`,
-            },
-          ],
+          content: [{ type: 'text', text: resultText }],
         };
       } catch (error) {
         return {
@@ -365,18 +440,27 @@ server.setRequestHandler(CallToolRequestSchema, async request => {
           };
         }
 
-        const archivePath = await featureManager.completeFeature(activeFeature);
+        const { archivePath, knowledgeExtracted } =
+          await featureManager.completeFeature(activeFeature);
+
+        let resultText =
+          `✓ Feature "${activeFeature}" completed\n` + `  Archived to: ${archivePath}\n`;
+
+        if (knowledgeExtracted.length > 0) {
+          resultText += `\nKnowledge extracted (${knowledgeExtracted.length} entries):\n`;
+          for (const entry of knowledgeExtracted.slice(0, 5)) {
+            resultText += `  • [${entry.type}] ${entry.title}\n`;
+          }
+          if (knowledgeExtracted.length > 5) {
+            resultText += `  ...and ${knowledgeExtracted.length - 5} more\n`;
+          }
+          resultText += `\nSaved to: .engineering/knowledge/base.yaml`;
+        }
+
+        resultText += `\n\nReady to start a new feature with eng_start.`;
 
         return {
-          content: [
-            {
-              type: 'text',
-              text:
-                `✓ Feature "${activeFeature}" completed\n` +
-                `  Archived to: ${archivePath}\n\n` +
-                `Ready to start a new feature with eng_start.`,
-            },
-          ],
+          content: [{ type: 'text', text: resultText }],
         };
       } catch (error) {
         return {
@@ -697,6 +781,383 @@ server.setRequestHandler(CallToolRequestSchema, async request => {
       } catch (error) {
         return {
           content: [{ type: 'text', text: `Unlock failed: ${String(error)}` }],
+          isError: true,
+        };
+      }
+    }
+
+    case 'eng_duplicates': {
+      try {
+        const duplicates = await duplicateDetector.scan();
+        await duplicateDetector.saveReport();
+
+        if (duplicates.length === 0) {
+          return {
+            content: [{ type: 'text', text: '✓ No significant duplicate code blocks found.' }],
+          };
+        }
+
+        return {
+          content: [
+            {
+              type: 'text',
+              text:
+                duplicateDetector.getSummary() +
+                '\n\nFull report: .engineering/index/duplicates.yaml',
+            },
+          ],
+        };
+      } catch (error) {
+        return {
+          content: [{ type: 'text', text: `Duplicate scan failed: ${String(error)}` }],
+          isError: true,
+        };
+      }
+    }
+
+    case 'eng_routes': {
+      try {
+        const routes = await routeIndexer.scan();
+        await routeIndexer.saveIndex();
+
+        if (routes.length === 0) {
+          return {
+            content: [{ type: 'text', text: 'No API routes found in the codebase.' }],
+          };
+        }
+
+        let report = `✓ Found ${routes.length} API route(s):\n\n`;
+
+        // Group by file
+        const byFile = new Map<string, typeof routes>();
+        for (const route of routes) {
+          const existing = byFile.get(route.file) ?? [];
+          existing.push(route);
+          byFile.set(route.file, existing);
+        }
+
+        for (const [file, fileRoutes] of byFile) {
+          report += `${file}:\n`;
+          for (const r of fileRoutes.slice(0, 10)) {
+            report += `  ${r.method.padEnd(7)} ${r.path} → ${r.handler}\n`;
+          }
+          if (fileRoutes.length > 10) {
+            report += `  ...and ${fileRoutes.length - 10} more\n`;
+          }
+        }
+
+        report += `\nFull index: .engineering/index/routes.yaml`;
+
+        return {
+          content: [{ type: 'text', text: report }],
+        };
+      } catch (error) {
+        return {
+          content: [{ type: 'text', text: `Route scan failed: ${String(error)}` }],
+          isError: true,
+        };
+      }
+    }
+
+    case 'eng_hardware': {
+      try {
+        const hwIndex = await hardwareIndexer.scan();
+        await hardwareIndexer.saveIndex();
+
+        if (hwIndex.peripherals.length === 0 && hwIndex.defines.length === 0) {
+          return {
+            content: [{ type: 'text', text: 'No hardware configurations found.' }],
+          };
+        }
+
+        let report = hardwareIndexer.getSummary();
+        report += `\nFull index: .engineering/index/hardware.yaml`;
+
+        return {
+          content: [{ type: 'text', text: report }],
+        };
+      } catch (error) {
+        return {
+          content: [{ type: 'text', text: `Hardware scan failed: ${String(error)}` }],
+          isError: true,
+        };
+      }
+    }
+
+    case 'eng_knowledge': {
+      try {
+        const query = (args as { query?: string } | undefined)?.query;
+        const knowledgeExtractor = featureManager.getKnowledgeExtractor();
+
+        if (!query) {
+          // Show stats
+          const stats = await knowledgeExtractor.getStats();
+
+          if (stats.total === 0) {
+            return {
+              content: [
+                {
+                  type: 'text',
+                  text: 'Knowledge base is empty. Complete features with eng_done to build it.',
+                },
+              ],
+            };
+          }
+
+          let report = `Knowledge Base: ${stats.total} entries\n\n`;
+          report += 'By type:\n';
+          for (const [type, count] of Object.entries(stats.byType)) {
+            report += `  ${type}: ${count}\n`;
+          }
+          report += '\nSearch with: eng_knowledge --query <term>';
+
+          return {
+            content: [{ type: 'text', text: report }],
+          };
+        }
+
+        // Search knowledge
+        const results = await knowledgeExtractor.searchKnowledge(query);
+
+        if (results.length === 0) {
+          return {
+            content: [{ type: 'text', text: `No knowledge entries found for "${query}"` }],
+          };
+        }
+
+        let report = `Found ${results.length} knowledge entries for "${query}":\n\n`;
+        for (const entry of results.slice(0, 10)) {
+          report += `[${entry.type}] ${entry.title}\n`;
+          report += `  ${entry.content.slice(0, 100)}${entry.content.length > 100 ? '...' : ''}\n`;
+          report += `  Source: ${entry.source.feature} (${entry.source.date.split('T')[0]})\n\n`;
+        }
+
+        if (results.length > 10) {
+          report += `...and ${results.length - 10} more`;
+        }
+
+        return {
+          content: [{ type: 'text', text: report }],
+        };
+      } catch (error) {
+        return {
+          content: [{ type: 'text', text: `Knowledge query failed: ${String(error)}` }],
+          isError: true,
+        };
+      }
+    }
+
+    case 'eng_pipeline': {
+      try {
+        const options: {
+          skipBuild?: boolean;
+          skipTest?: boolean;
+          skipLint?: boolean;
+        } = {};
+
+        const argsObj = args as { skipBuild?: boolean; skipTest?: boolean; skipLint?: boolean } | undefined;
+        if (argsObj?.skipBuild === true) options.skipBuild = true;
+        if (argsObj?.skipTest === true) options.skipTest = true;
+        if (argsObj?.skipLint === true) options.skipLint = true;
+
+        const result = await validationPipeline.run(options);
+
+        return {
+          content: [{ type: 'text', text: result.summary }],
+        };
+      } catch (error) {
+        return {
+          content: [{ type: 'text', text: `Pipeline failed: ${String(error)}` }],
+          isError: true,
+        };
+      }
+    }
+
+    case 'eng_deps': {
+      try {
+        await dependencyAnalyzer.analyze();
+        await dependencyAnalyzer.saveReport();
+
+        return {
+          content: [
+            {
+              type: 'text',
+              text: dependencyAnalyzer.getSummary() + '\n\nFull report: .engineering/index/dependencies.yaml',
+            },
+          ],
+        };
+      } catch (error) {
+        return {
+          content: [{ type: 'text', text: `Dependency analysis failed: ${String(error)}` }],
+          isError: true,
+        };
+      }
+    }
+
+    case 'eng_refactor': {
+      try {
+        const refactorArgs = args as { fix?: boolean; dryRun?: boolean } | undefined;
+        const shouldFix = refactorArgs?.fix === true;
+        const dryRun = refactorArgs?.dryRun === true;
+
+        // Always generate fixes if fix flag is set (for dry-run or apply)
+        const report = await refactorAnalyzer.analyze({ generateFixes: shouldFix });
+
+        let output = report.summary + '\n\n';
+
+        if (report.suggestions.length > 0) {
+          output += 'Detailed suggestions:\n';
+
+          for (const s of report.suggestions.slice(0, 10)) {
+            output += `\n[${s.priority.toUpperCase()}] ${s.title}\n`;
+            output += `  ${s.description}\n`;
+            output += `  Files: ${s.files.join(', ')}\n`;
+            output += `  Impact: ${s.estimatedImpact}\n`;
+
+            // Show fix instructions in dry-run mode
+            if (shouldFix && dryRun && s.fix) {
+              output += `\n  === PREVIEW (dry-run) ===\n`;
+              output += `  ${s.fix.instructions.split('\n').join('\n  ')}\n`;
+            }
+          }
+        }
+
+        // Handle fix mode
+        if (shouldFix && !dryRun) {
+          // Actually apply fixes
+          const result = await refactorAnalyzer.applyFixes(report);
+          output += '\n\n' + result.summary;
+        } else if (shouldFix && dryRun) {
+          output += '\n\nRun with --fix (without --dry-run) to apply these changes.';
+        }
+
+        return {
+          content: [{ type: 'text', text: output }],
+        };
+      } catch (error) {
+        return {
+          content: [{ type: 'text', text: `Refactor analysis failed: ${String(error)}` }],
+          isError: true,
+        };
+      }
+    }
+
+    case 'eng_review': {
+      try {
+        const skipTests = (args as { skipTests?: boolean } | undefined)?.skipTests ?? false;
+        const report = await reviewChecker.runReview(skipTests);
+
+        return {
+          content: [
+            {
+              type: 'text',
+              text: reviewChecker.formatReport(report),
+            },
+          ],
+        };
+      } catch (error) {
+        return {
+          content: [{ type: 'text', text: `Review failed: ${String(error)}` }],
+          isError: true,
+        };
+      }
+    }
+
+    case 'eng_index_function': {
+      try {
+        const argsObj = args as { query?: string; file?: string; tag?: string } | undefined;
+        const query = argsObj?.query;
+
+        // Scan to get all functions
+        const functions = await functionIndexer.scan();
+
+        if (!query) {
+          // Show stats
+          // Group by file
+          const byFile = new Map<string, number>();
+          for (const fn of functions) {
+            byFile.set(fn.file, (byFile.get(fn.file) ?? 0) + 1);
+          }
+
+          let report = `Function Index: ${functions.length} functions\n\n`;
+          report += 'By file (top 10):\n';
+          const sorted = [...byFile.entries()].sort((a, b) => b[1] - a[1]).slice(0, 10);
+          for (const [file, count] of sorted) {
+            report += `  ${file}: ${count}\n`;
+          }
+          report += '\nSearch with: eng_index_function --query <term>';
+
+          return {
+            content: [{ type: 'text', text: report }],
+          };
+        }
+
+        // Search with optional filters
+        let results = functionIndexer.search(query);
+
+        // Filter by file if specified
+        if (argsObj?.file) {
+          results = results.filter(r => r.file.includes(argsObj.file ?? ''));
+        }
+
+        if (results.length === 0) {
+          return {
+            content: [{ type: 'text', text: `No functions found matching "${query}"` }],
+          };
+        }
+
+        let report = `Found ${results.length} function(s) matching "${query}":\n\n`;
+        for (const fn of results.slice(0, 15)) {
+          report += `${fn.name}\n`;
+          report += `  File: ${fn.file}:${fn.line}\n`;
+          if (fn.signature) report += `  Signature: ${fn.signature}\n`;
+          report += '\n';
+        }
+
+        if (results.length > 15) {
+          report += `...and ${results.length - 15} more`;
+        }
+
+        return {
+          content: [{ type: 'text', text: report }],
+        };
+      } catch (error) {
+        return {
+          content: [{ type: 'text', text: `Function search failed: ${String(error)}` }],
+          isError: true,
+        };
+      }
+    }
+
+    case 'eng_index_similar': {
+      try {
+        const code = (args as { code?: string } | undefined)?.code;
+
+        if (!code) {
+          return {
+            content: [
+              {
+                type: 'text',
+                text: 'Code snippet required. Usage: eng_index_similar --code "<your code>"',
+              },
+            ],
+            isError: true,
+          };
+        }
+
+        const result = await similarityAnalyzer.findSimilar(code);
+
+        return {
+          content: [
+            {
+              type: 'text',
+              text: similarityAnalyzer.formatResult(result),
+            },
+          ],
+        };
+      } catch (error) {
+        return {
+          content: [{ type: 'text', text: `Similarity search failed: ${String(error)}` }],
           isError: true,
         };
       }

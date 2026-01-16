@@ -1,6 +1,6 @@
 {
   "name": "mcp-engineering-server",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "description": "MCP Server for Universal Engineering Workflow - AI-Assisted Development",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -8,6 +8,13 @@
   "bin": {
     "mcp-engineering-server": "./dist/index.js"
   },
+  "files": [
+    "dist",
+    "commands",
+    ".claude-plugin",
+    ".mcp.json",
+    "README.md"
+  ],
   "repository": {
     "type": "git",
     "url": "git+https://github.com/liam1472/mcp-engineering-server.git"

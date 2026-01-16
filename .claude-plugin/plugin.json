@@ -1,0 +1,26 @@
+{
+  "name": "mcp-engineering",
+  "version": "0.2.0",
+  "description": "Universal Engineering Workflow for AI-Assisted Development - Auto-detect project types, security scanning, function indexing, session checkpoints, and multi-session coordination",
+  "author": {
+    "name": "liam1472",
+    "url": "https://github.com/liam1472"
+  },
+  "homepage": "https://github.com/liam1472/mcp-engineering-server#readme",
+  "repository": "https://github.com/liam1472/mcp-engineering-server",
+  "license": "MIT",
+  "keywords": [
+    "mcp",
+    "engineering",
+    "workflow",
+    "security",
+    "indexing",
+    "embedded",
+    "dotnet",
+    "web",
+    "python",
+    "rust",
+    "go"
+  ],
+  "mcpServers": "./.mcp.json"
+}

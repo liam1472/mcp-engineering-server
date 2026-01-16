@@ -8,6 +8,30 @@ import * as path from 'path';
 import { glob } from 'glob';
 import type { SecurityFinding } from '../types/index.js';
 
+export interface SecurityFix {
+  envFile: string;           // Content for .env file
+  envExampleFile: string;    // Content for .env.example
+  gitignoreEntry: string;    // Line to add to .gitignore
+  codeReplacements: Array<{
+    file: string;
+    line: number;
+    original: string;
+    replacement: string;
+    envVar: string;
+  }>;
+  instructions: string;
+}
+
+export interface ApplyFixResult {
+  success: boolean;
+  filesModified: string[];
+  filesBackedUp: string[];
+  envCreated: boolean;
+  gitignoreUpdated: boolean;
+  errors: string[];
+  summary: string;
+}
+
 interface SecretPattern {
   name: string;
   type: SecurityFinding['type'];
@@ -269,5 +293,429 @@ export class SecurityScanner {
 
   setWorkingDir(dir: string): void {
     this.workingDir = dir;
+  }
+
+  /**
+   * Apply security fixes - actually modify files
+   * Creates backups before modifying
+   */
+  async applyFixes(findings: SecurityFinding[]): Promise<ApplyFixResult> {
+    const result: ApplyFixResult = {
+      success: false,
+      filesModified: [],
+      filesBackedUp: [],
+      envCreated: false,
+      gitignoreUpdated: false,
+      errors: [],
+      summary: '',
+    };
+
+    if (findings.length === 0) {
+      result.success = true;
+      result.summary = 'No security issues to fix.';
+      return result;
+    }
+
+    try {
+      // Generate the fix plan
+      const fix = await this.generateFixes(findings);
+
+      // 1. Create/update .env file
+      const envPath = path.join(this.workingDir, '.env');
+      try {
+        let existingEnv = '';
+        try {
+          existingEnv = await fs.readFile(envPath, 'utf-8');
+        } catch {
+          // File doesn't exist, that's fine
+        }
+
+        // Parse existing env vars to avoid duplicates
+        const existingVars = new Set<string>();
+        for (const line of existingEnv.split('\n')) {
+          const match = line.match(/^([A-Z_][A-Z0-9_]*)=/);
+          if (match?.[1]) {
+            existingVars.add(match[1]);
+          }
+        }
+
+        // Add new vars that don't exist yet
+        const newEnvLines: string[] = [];
+        for (const line of fix.envFile.split('\n')) {
+          const match = line.match(/^([A-Z_][A-Z0-9_]*)=/);
+          if (match?.[1] && !existingVars.has(match[1])) {
+            newEnvLines.push(line);
+          }
+        }
+
+        if (newEnvLines.length > 0) {
+          const newContent = existingEnv
+            ? existingEnv.trimEnd() + '\n\n# Added by eng_security --fix\n' + newEnvLines.join('\n') + '\n'
+            : fix.envFile + '\n';
+          await fs.writeFile(envPath, newContent, 'utf-8');
+          result.envCreated = true;
+        }
+      } catch (error) {
+        result.errors.push(`Failed to create .env: ${String(error)}`);
+      }
+
+      // 2. Create .env.example if doesn't exist
+      const envExamplePath = path.join(this.workingDir, '.env.example');
+      try {
+        try {
+          await fs.access(envExamplePath);
+        } catch {
+          // Doesn't exist, create it
+          await fs.writeFile(envExamplePath, fix.envExampleFile + '\n', 'utf-8');
+        }
+      } catch (error) {
+        result.errors.push(`Failed to create .env.example: ${String(error)}`);
+      }
+
+      // 3. Update .gitignore
+      const gitignorePath = path.join(this.workingDir, '.gitignore');
+      try {
+        let gitignoreContent = '';
+        try {
+          gitignoreContent = await fs.readFile(gitignorePath, 'utf-8');
+        } catch {
+          // File doesn't exist
+        }
+
+        const entriesToAdd = fix.gitignoreEntry.split('\n').filter(e => e.trim());
+        const newEntries: string[] = [];
+        for (const entry of entriesToAdd) {
+          if (!gitignoreContent.includes(entry)) {
+            newEntries.push(entry);
+          }
+        }
+
+        if (newEntries.length > 0) {
+          const newContent = gitignoreContent
+            ? gitignoreContent.trimEnd() + '\n\n# Secrets (added by eng_security)\n' + newEntries.join('\n') + '\n'
+            : '# Secrets\n' + newEntries.join('\n') + '\n';
+          await fs.writeFile(gitignorePath, newContent, 'utf-8');
+          result.gitignoreUpdated = true;
+        }
+      } catch (error) {
+        result.errors.push(`Failed to update .gitignore: ${String(error)}`);
+      }
+
+      // 4. Apply code replacements (with backups)
+      // Group replacements by file
+      const byFile = new Map<string, typeof fix.codeReplacements>();
+      for (const r of fix.codeReplacements) {
+        const existing = byFile.get(r.file) ?? [];
+        existing.push(r);
+        byFile.set(r.file, existing);
+      }
+
+      for (const [file, replacements] of byFile) {
+        const fullPath = path.join(this.workingDir, file);
+        const backupPath = fullPath + '.bak';
+
+        try {
+          // Read original file
+          const content = await fs.readFile(fullPath, 'utf-8');
+
+          // Create backup
+          await fs.writeFile(backupPath, content, 'utf-8');
+          result.filesBackedUp.push(file + '.bak');
+
+          // Apply replacements (sort by line number descending to preserve line numbers)
+          const lines = content.split('\n');
+          const sortedReplacements = [...replacements].sort((a, b) => b.line - a.line);
+
+          for (const r of sortedReplacements) {
+            const lineIndex = r.line - 1;
+            if (lineIndex >= 0 && lineIndex < lines.length) {
+              const line = lines[lineIndex];
+              if (line && line.includes(r.original)) {
+                lines[lineIndex] = line.replace(r.original, r.replacement);
+              }
+            }
+          }
+
+          // Write modified file
+          await fs.writeFile(fullPath, lines.join('\n'), 'utf-8');
+          result.filesModified.push(file);
+        } catch (error) {
+          result.errors.push(`Failed to modify ${file}: ${String(error)}`);
+        }
+      }
+
+      // Generate summary
+      result.success = result.errors.length === 0;
+      const parts: string[] = [];
+
+      if (result.filesModified.length > 0) {
+        parts.push(`Modified ${result.filesModified.length} file(s)`);
+      }
+      if (result.filesBackedUp.length > 0) {
+        parts.push(`Created ${result.filesBackedUp.length} backup(s)`);
+      }
+      if (result.envCreated) {
+        parts.push('Created/updated .env');
+      }
+      if (result.gitignoreUpdated) {
+        parts.push('Updated .gitignore');
+      }
+      if (result.errors.length > 0) {
+        parts.push(`${result.errors.length} error(s)`);
+      }
+
+      result.summary = `✓ Security fix applied:\n  ${parts.join('\n  ')}`;
+
+      if (result.filesBackedUp.length > 0) {
+        result.summary += `\n\nBackups created:\n  ${result.filesBackedUp.join('\n  ')}`;
+      }
+
+      if (result.filesModified.length > 0) {
+        result.summary += `\n\nFiles modified:\n  ${result.filesModified.join('\n  ')}`;
+      }
+
+      if (result.errors.length > 0) {
+        result.summary += `\n\nErrors:\n  ${result.errors.join('\n  ')}`;
+      }
+
+      result.summary += `\n\nNext steps:\n  1. Review the changes\n  2. Update .env with actual secret values\n  3. Ensure required env imports are added (import dotenv if needed)`;
+
+      return result;
+    } catch (error) {
+      result.errors.push(`Fix failed: ${String(error)}`);
+      result.summary = `✗ Security fix failed: ${String(error)}`;
+      return result;
+    }
+  }
+
+  /**
+   * Generate auto-fix preview for security findings (dry-run mode)
+   */
+  async generateFixes(findings: SecurityFinding[]): Promise<SecurityFix> {
+    const envVars = new Map<string, string>(); // envVar -> placeholder
+    const codeReplacements: SecurityFix['codeReplacements'] = [];
+
+    // Deduplicate findings by file:line to avoid overlapping replacements
+    const seen = new Set<string>();
+
+    for (const finding of findings) {
+      const key = `${finding.file}:${finding.line}`;
+
+      // Skip if we already have a replacement for this line
+      // (first match wins - typically the more specific pattern)
+      if (seen.has(key)) continue;
+      seen.add(key);
+
+      // Generate env variable name from pattern name
+      const envVar = this.generateEnvVarName(finding.pattern);
+
+      // Get the actual secret (we need to re-read the file to get the full match)
+      const secretInfo = await this.getActualSecret(finding);
+      if (!secretInfo) continue;
+
+      // Store env var with placeholder
+      if (!envVars.has(envVar)) {
+        envVars.set(envVar, this.generatePlaceholder(finding.pattern));
+      }
+
+      // Use the quoted string if available, otherwise fall back to raw secret
+      const original = secretInfo.quoted ?? secretInfo.raw;
+
+      // Generate code replacement
+      const replacement = this.generateCodeReplacement(finding, envVar);
+      if (replacement) {
+        codeReplacements.push({
+          file: finding.file,
+          line: finding.line,
+          original: original,
+          replacement: replacement,
+          envVar: envVar,
+        });
+      }
+    }
+
+    // Generate .env content
+    const envLines: string[] = ['# Environment Variables', '# Generated by eng_security --fix', ''];
+    for (const [key, value] of envVars) {
+      envLines.push(`${key}=${value}`);
+    }
+    const envFile = envLines.join('\n');
+
+    // Generate .env.example content (no actual values)
+    const exampleLines: string[] = ['# Environment Variables Template', '# Copy to .env and fill in values', ''];
+    for (const key of envVars.keys()) {
+      exampleLines.push(`${key}=`);
+    }
+    const envExampleFile = exampleLines.join('\n');
+
+    // Generate instructions
+    const instructions = this.generateInstructions(findings, codeReplacements, envVars);
+
+    return {
+      envFile,
+      envExampleFile,
+      gitignoreEntry: '.env\n.env.local\n.env.*.local',
+      codeReplacements,
+      instructions,
+    };
+  }
+
+  private generateEnvVarName(patternName: string): string {
+    // Convert pattern name to ENV_VAR format
+    // "AWS Access Key" -> "AWS_ACCESS_KEY"
+    // "OpenAI API Key" -> "OPENAI_API_KEY"
+    return patternName
+      .toUpperCase()
+      .replace(/[^A-Z0-9]+/g, '_')
+      .replace(/^_+|_+$/g, '');
+  }
+
+  private generatePlaceholder(patternName: string): string {
+    // Generate a placeholder based on the type
+    const lower = patternName.toLowerCase();
+    if (lower.includes('key')) return 'your-api-key-here';
+    if (lower.includes('token')) return 'your-token-here';
+    if (lower.includes('password')) return 'your-password-here';
+    if (lower.includes('uri') || lower.includes('url')) return 'your-connection-string-here';
+    if (lower.includes('secret')) return 'your-secret-here';
+    return 'your-value-here';
+  }
+
+  private async getActualSecret(finding: SecurityFinding): Promise<{ raw: string; quoted: string | null } | null> {
+    try {
+      const fullPath = path.join(this.workingDir, finding.file);
+      const content = await fs.readFile(fullPath, 'utf-8');
+      const lines = content.split('\n');
+      const line = lines[finding.line - 1];
+      if (!line) return null;
+
+      // Find the pattern that matches
+      for (const pattern of SECRET_PATTERNS) {
+        if (pattern.name === finding.pattern) {
+          const matches = line.matchAll(pattern.pattern);
+          for (const match of matches) {
+            const rawSecret = match[0];
+            const matchIndex = match.index ?? 0;
+
+            // Try to find the full quoted string containing this secret
+            // Look backwards for opening quote, forwards for closing quote
+            let quoted: string | null = null;
+
+            // Find all quoted strings in the line
+            const quotedStrings = line.matchAll(/(['"`])([^'"`]*)\1/g);
+            for (const qs of quotedStrings) {
+              const fullMatch = qs[0];
+              const qsIndex = qs.index ?? 0;
+              // Check if our secret is contained within this quoted string
+              if (qsIndex <= matchIndex && qsIndex + fullMatch.length >= matchIndex + rawSecret.length) {
+                quoted = fullMatch;
+                break;
+              }
+            }
+
+            return { raw: rawSecret, quoted };
+          }
+        }
+      }
+    } catch {
+      // Skip
+    }
+    return null;
+  }
+
+  private generateCodeReplacement(finding: SecurityFinding, envVar: string): string | null {
+    const ext = path.extname(finding.file).toLowerCase();
+
+    // Different syntax based on language
+    if (['.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs'].includes(ext)) {
+      return `process.env.${envVar}`;
+    } else if (ext === '.py') {
+      return `os.environ.get('${envVar}')`;
+    } else if (ext === '.go') {
+      return `os.Getenv("${envVar}")`;
+    } else if (ext === '.cs') {
+      return `Environment.GetEnvironmentVariable("${envVar}")`;
+    } else if (ext === '.rs') {
+      return `std::env::var("${envVar}").unwrap()`;
+    } else if (['.c', '.cpp', '.h', '.hpp'].includes(ext)) {
+      return `getenv("${envVar}")`;
+    } else if (ext === '.rb') {
+      return `ENV['${envVar}']`;
+    } else if (ext === '.php') {
+      return `$_ENV['${envVar}']`;
+    } else if (ext === '.java') {
+      return `System.getenv("${envVar}")`;
+    }
+
+    // Default fallback
+    return `process.env.${envVar}`;
+  }
+
+  private generateInstructions(
+    findings: SecurityFinding[],
+    replacements: SecurityFix['codeReplacements'],
+    envVars: Map<string, string>
+  ): string {
+    const lines: string[] = [];
+
+    lines.push('=== Security Auto-Fix Instructions ===\n');
+
+    // Step 1: Create .env file
+    lines.push('1. Create .env file with the following content:');
+    lines.push('');
+    for (const [key, placeholder] of envVars) {
+      lines.push(`   ${key}=${placeholder}`);
+    }
+    lines.push('');
+
+    // Step 2: Update .gitignore
+    lines.push('2. Add to .gitignore (if not already present):');
+    lines.push('   .env');
+    lines.push('   .env.local');
+    lines.push('   .env.*.local');
+    lines.push('');
+
+    // Step 3: Code replacements
+    if (replacements.length > 0) {
+      lines.push('3. Replace hardcoded secrets in code:');
+      lines.push('');
+
+      // Group by file
+      const byFile = new Map<string, typeof replacements>();
+      for (const r of replacements) {
+        const existing = byFile.get(r.file) ?? [];
+        existing.push(r);
+        byFile.set(r.file, existing);
+      }
+
+      for (const [file, fileReplacements] of byFile) {
+        lines.push(`   ${file}:`);
+        for (const r of fileReplacements) {
+          const masked = r.original.length > 20
+            ? `${r.original.slice(0, 10)}...${r.original.slice(-10)}`
+            : r.original;
+          lines.push(`     Line ${r.line}: "${masked}" → ${r.replacement}`);
+        }
+        lines.push('');
+      }
+    }
+
+    // Step 4: Additional imports if needed
+    const hasNonJsFiles = replacements.some(r => {
+      const ext = path.extname(r.file).toLowerCase();
+      return !['.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs'].includes(ext);
+    });
+
+    if (hasNonJsFiles) {
+      lines.push('4. Add necessary imports for environment variable access:');
+      lines.push('   Python: import os');
+      lines.push('   Go: import "os"');
+      lines.push('   C#: using System;');
+      lines.push('');
+    }
+
+    lines.push(`\nTotal: ${findings.length} secret(s) to fix in ${replacements.length} location(s)`);
+
+    return lines.join('\n');
   }
 }
