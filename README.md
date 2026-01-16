@@ -19,7 +19,7 @@ An MCP (Model Context Protocol) server and Claude Code plugin for AI-assisted en
 ### Option 1: Claude Code Plugin (Recommended)
 
 ```bash
-claude plugin install mcp-engineering-server
+npm install -g mcp-engineering-server
 ```
 
 That's it! All slash commands and MCP tools are automatically available.
