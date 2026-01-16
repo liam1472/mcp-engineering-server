@@ -46,6 +46,13 @@ coverage/
 .engineering/index/
 .engineering/knowledge/
 
+# Local docs (not for distribution)
+CLAUDE.md
+MCP_SERVER_IMPLEMENTATION_GUIDE.md
+
+# Generated engineering data
+.engineering/
+
 # Temporary files
 tmp/
 temp/
