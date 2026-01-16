@@ -110,6 +110,12 @@ When `eng_init` runs, it creates `.engineering/` with:
 
 **Important:** Add `.engineering/sessions/` to `.gitignore` - session data is local only.
 
+## Git Commit Rules
+
+- Use conventional commits format: `feat:`, `fix:`, `docs:`, `refactor:`, etc.
+- **NEVER** add `Co-Authored-By: Claude` or any AI attribution to commit messages
+- Keep commit messages concise and descriptive
+
 ## Implementation Status
 
 All core commands implemented and functional:
