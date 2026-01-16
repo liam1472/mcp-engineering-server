@@ -16,23 +16,34 @@ An MCP (Model Context Protocol) server and Claude Code plugin for AI-assisted en
 
 ## Installation
 
-### Option 1: Claude Code Plugin (Recommended)
+### Quick Install (Recommended)
 
 ```bash
 npm install -g mcp-engineering-server
+mcp-engineering-server install
 ```
 
-That's it! All slash commands and MCP tools are automatically available.
+That's it! The install command will:
+1. Copy slash commands to `~/.claude/commands/` (global)
+2. Register the MCP server with Claude Code
 
-### Option 2: From Source
+### From Source
 
 ```bash
 git clone https://github.com/liam1472/mcp-engineering-server.git
 cd mcp-engineering-server
 npm install && npm run build
 
-# Add to Claude Code
-claude mcp add engineering -- node "/path/to/mcp-engineering-server/dist/index.js"
+# Install globally
+npm link
+mcp-engineering-server install
+```
+
+### Uninstall
+
+```bash
+mcp-engineering-server uninstall
+npm uninstall -g mcp-engineering-server
 ```
 
 ## Slash Commands

@@ -6,29 +6,135 @@
 
 import * as fs from 'fs/promises';
 import * as path from 'path';
+import * as os from 'os';
 import { fileURLToPath } from 'url';
+import { execSync } from 'child_process';
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 
-// CLI: Handle setup command before MCP server starts
+// CLI: Handle commands before MCP server starts
 const args = process.argv.slice(2);
-if (args.includes('setup') || args.includes('--setup')) {
-  await setupCommands();
+const command = args[0];
+
+if (command === 'install') {
+  await installGlobal();
+  process.exit(0);
+} else if (command === 'setup') {
+  await setupLocal();
+  process.exit(0);
+} else if (command === 'uninstall') {
+  await uninstallGlobal();
   process.exit(0);
 }
 
-async function setupCommands(): Promise<void> {
+/**
+ * Install globally: copy commands to ~/.claude/commands/ and register MCP server
+ */
+async function installGlobal(): Promise<void> {
   const __dirname = path.dirname(fileURLToPath(import.meta.url));
-  const sourceDir = path.join(__dirname, '..', '.claude', 'commands');
-  const targetDir = path.join(process.cwd(), '.claude', 'commands');
+  const sourceDir = path.join(__dirname, '..', 'commands');
+  const homeDir = os.homedir();
+  const targetDir = path.join(homeDir, '.claude', 'commands');
+
+  console.log('Installing mcp-engineering-server...\n');
 
   try {
+    // Step 1: Copy slash commands to ~/.claude/commands/
+    console.log('Step 1: Installing slash commands...');
+
     // Check if source exists
-    await fs.access(sourceDir);
+    try {
+      await fs.access(sourceDir);
+    } catch {
+      console.error(`  Error: Commands directory not found at ${sourceDir}`);
+      console.error('  Please reinstall the package: npm install -g mcp-engineering-server');
+      process.exit(1);
+    }
 
     // Create target directory
     await fs.mkdir(targetDir, { recursive: true });
 
     // Copy all command files
+    const files = await fs.readdir(sourceDir);
+    let copied = 0;
+    let skipped = 0;
+
+    for (const file of files) {
+      if (file.endsWith('.md')) {
+        const src = path.join(sourceDir, file);
+        const dest = path.join(targetDir, file);
+
+        // Check if file already exists
+        try {
+          await fs.access(dest);
+          skipped++;
+        } catch {
+          await fs.copyFile(src, dest);
+          copied++;
+        }
+      }
+    }
+
+    console.log(`  Copied: ${copied} command(s)`);
+    if (skipped > 0) {
+      console.log(`  Skipped: ${skipped} (already exist)`);
+    }
+    console.log(`  Location: ${targetDir}\n`);
+
+    // Step 2: Register MCP server with Claude Code
+    console.log('Step 2: Registering MCP server with Claude Code...');
+
+    try {
+      execSync('claude mcp add engineering -- mcp-engineering-server', {
+        stdio: 'pipe',
+        encoding: 'utf-8',
+      });
+      console.log('  MCP server registered successfully.\n');
+    } catch (error) {
+      const err = error as { stderr?: string; message?: string };
+      if (err.stderr?.includes('already exists') || err.message?.includes('already exists')) {
+        console.log('  MCP server already registered.\n');
+      } else {
+        console.log('  Warning: Could not auto-register MCP server.');
+        console.log('  You may need to run manually:');
+        console.log('    claude mcp add engineering -- mcp-engineering-server\n');
+      }
+    }
+
+    // Success message
+    console.log('✓ Installation complete!\n');
+    console.log('Available slash commands:');
+    console.log('  /eng-init        Initialize project');
+    console.log('  /eng-scan        Build function index');
+    console.log('  /eng-security    Scan for secrets');
+    console.log('  /eng-start       Start a feature');
+    console.log('  /eng-validate    Run validation');
+    console.log('  /eng-done        Complete feature');
+    console.log('  /eng-search      Search functions');
+    console.log('  /eng-checkpoint  Save session');
+    console.log('  /eng-resume      Resume session');
+    console.log('  ...and more! Use /help to see all commands.\n');
+    console.log('Get started: Open a project and run /eng-init');
+
+  } catch (error) {
+    console.error('Installation failed:', error);
+    process.exit(1);
+  }
+}
+
+/**
+ * Setup for current project only (copy to ./.claude/commands/)
+ */
+async function setupLocal(): Promise<void> {
+  const __dirname = path.dirname(fileURLToPath(import.meta.url));
+  const sourceDir = path.join(__dirname, '..', 'commands');
+  const targetDir = path.join(process.cwd(), '.claude', 'commands');
+
+  console.log('Setting up slash commands for current project...\n');
+
+  try {
+    await fs.access(sourceDir);
+    await fs.mkdir(targetDir, { recursive: true });
+
     const files = await fs.readdir(sourceDir);
     let copied = 0;
 
@@ -37,7 +143,6 @@ async function setupCommands(): Promise<void> {
         const src = path.join(sourceDir, file);
         const dest = path.join(targetDir, file);
 
-        // Check if file already exists
         try {
           await fs.access(dest);
           console.log(`  Skip: ${file} (already exists)`);
@@ -50,12 +155,49 @@ async function setupCommands(): Promise<void> {
     }
 
     console.log(`\n✓ Setup complete: ${copied} command(s) copied to .claude/commands/`);
-    console.log('\nSlash commands available:');
-    console.log('  /eng-init, /eng-scan, /eng-security, /eng-start, /eng-validate');
-    console.log('  /eng-done, /eng-search, /eng-checkpoint, /eng-resume');
-    console.log('  /eng-session-start, /eng-session-status, /eng-lock, /eng-unlock');
+
   } catch (error) {
     console.error('Setup failed:', error);
+    process.exit(1);
+  }
+}
+
+/**
+ * Uninstall: remove commands and MCP registration
+ */
+async function uninstallGlobal(): Promise<void> {
+  const homeDir = os.homedir();
+  const targetDir = path.join(homeDir, '.claude', 'commands');
+
+  console.log('Uninstalling mcp-engineering-server...\n');
+
+  try {
+    // Remove slash commands
+    console.log('Removing slash commands...');
+    const files = await fs.readdir(targetDir).catch(() => []);
+    let removed = 0;
+
+    for (const file of files) {
+      if (file.startsWith('eng-') && file.endsWith('.md')) {
+        await fs.unlink(path.join(targetDir, file)).catch(() => {});
+        removed++;
+      }
+    }
+    console.log(`  Removed: ${removed} command(s)\n`);
+
+    // Remove MCP registration
+    console.log('Removing MCP server registration...');
+    try {
+      execSync('claude mcp remove engineering', { stdio: 'pipe' });
+      console.log('  MCP server removed.\n');
+    } catch {
+      console.log('  MCP server was not registered.\n');
+    }
+
+    console.log('✓ Uninstall complete!');
+
+  } catch (error) {
+    console.error('Uninstall failed:', error);
     process.exit(1);
   }
 }
