@@ -10,60 +10,34 @@ An MCP (Model Context Protocol) server that provides AI-assisted engineering wor
 - **Session management**: Checkpoints for context preservation across Claude sessions
 - **Multi-session coordination**: Parallel Claude instances with file locking
 
-## Requirements
+## Quick Start
 
-- Node.js >= 18.0.0
-- Claude Code (VS Code extension or CLI)
-
-## Installation
-
-### Option 1: Clone and Build
-
-```bash
-git clone https://github.com/liam1472/mcp-engineering-server.git
-cd mcp-engineering-server
-npm install
-npm run build
-```
-
-### Option 2: npm (coming soon)
+### 1. Install
 
 ```bash
 npm install -g mcp-engineering-server
 ```
 
-## Setup with Claude Code
-
-### VS Code Extension
-
-Add to your Claude Code MCP settings:
+### 2. Add to Claude Code
 
 ```bash
-claude mcp add engineering -s user -- node "/path/to/mcp-engineering-server/dist/index.js"
+claude mcp add engineering -- mcp-engineering-server
 ```
 
-Or add manually to `~/.claude/settings.json`:
-
-```json
-{
-  "mcpServers": {
-    "engineering": {
-      "command": "node",
-      "args": ["/path/to/mcp-engineering-server/dist/index.js"]
-    }
-  }
-}
-```
-
-### Claude Code CLI
+### 3. Setup Slash Commands (in your project)
 
 ```bash
-claude mcp add engineering -- node "/path/to/mcp-engineering-server/dist/index.js"
+cd your-project
+npx mcp-engineering-server setup
 ```
+
+This copies slash commands to `.claude/commands/` in your project.
+
+### 4. Use
+
+Open Claude Code and type `/eng-init` to initialize your project.
 
 ## Slash Commands
-
-Copy the `.claude/commands/` folder to your project to enable slash commands:
 
 | Command | Description |
 |---------|-------------|
@@ -95,6 +69,38 @@ Copy the `.claude/commands/` folder to your project to enable slash commands:
 /eng-validate      # Check security & index
     ↓
 /eng-done          # Archive feature
+```
+
+## Alternative Installation
+
+### From Source
+
+```bash
+git clone https://github.com/liam1472/mcp-engineering-server.git
+cd mcp-engineering-server
+npm install
+npm run build
+```
+
+Then add to Claude Code:
+
+```bash
+claude mcp add engineering -- node "/path/to/mcp-engineering-server/dist/index.js"
+```
+
+### Manual MCP Configuration
+
+Add to `~/.claude.json` or `.mcp.json`:
+
+```json
+{
+  "mcpServers": {
+    "engineering": {
+      "command": "mcp-engineering-server",
+      "args": []
+    }
+  }
+}
 ```
 
 ## Generated Structure
@@ -146,25 +152,10 @@ The security scanner detects:
 - RSA/SSH Private Keys
 - Hardcoded passwords
 
-## Configuration
+## Requirements
 
-Edit `.engineering/config.yaml`:
-
-```yaml
-version: 1.0.0
-projectType: web-node
-projectName: my-project
-autoSaveInterval: 300
-security:
-  enabled: true
-  customPatterns: []
-  whitelist: []
-indexes:
-  functions: true
-  errors: true
-  constants: true
-  dependencies: true
-```
+- Node.js >= 18.0.0
+- Claude Code (VS Code extension or CLI)
 
 ## License
 

@@ -4,8 +4,61 @@
  * Universal Engineering Workflow for AI-Assisted Development
  */
 
+import * as fs from 'fs/promises';
 import * as path from 'path';
+import { fileURLToPath } from 'url';
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
+
+// CLI: Handle setup command before MCP server starts
+const args = process.argv.slice(2);
+if (args.includes('setup') || args.includes('--setup')) {
+  await setupCommands();
+  process.exit(0);
+}
+
+async function setupCommands(): Promise<void> {
+  const __dirname = path.dirname(fileURLToPath(import.meta.url));
+  const sourceDir = path.join(__dirname, '..', '.claude', 'commands');
+  const targetDir = path.join(process.cwd(), '.claude', 'commands');
+
+  try {
+    // Check if source exists
+    await fs.access(sourceDir);
+
+    // Create target directory
+    await fs.mkdir(targetDir, { recursive: true });
+
+    // Copy all command files
+    const files = await fs.readdir(sourceDir);
+    let copied = 0;
+
+    for (const file of files) {
+      if (file.endsWith('.md')) {
+        const src = path.join(sourceDir, file);
+        const dest = path.join(targetDir, file);
+
+        // Check if file already exists
+        try {
+          await fs.access(dest);
+          console.log(`  Skip: ${file} (already exists)`);
+        } catch {
+          await fs.copyFile(src, dest);
+          console.log(`  Copy: ${file}`);
+          copied++;
+        }
+      }
+    }
+
+    console.log(`\n✓ Setup complete: ${copied} command(s) copied to .claude/commands/`);
+    console.log('\nSlash commands available:');
+    console.log('  /eng-init, /eng-scan, /eng-security, /eng-start, /eng-validate');
+    console.log('  /eng-done, /eng-search, /eng-checkpoint, /eng-resume');
+    console.log('  /eng-session-start, /eng-session-status, /eng-lock, /eng-unlock');
+  } catch (error) {
+    console.error('Setup failed:', error);
+    process.exit(1);
+  }
+}
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js';
 
