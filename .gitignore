@@ -1,0 +1,59 @@
+# Dependencies
+node_modules/
+.pnp
+.pnp.js
+
+# Build outputs
+dist/
+build/
+*.tsbuildinfo
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS files
+.DS_Store
+Thumbs.db
+ehthumbs.db
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Test coverage
+coverage/
+.nyc_output/
+
+# Environment files (security - never commit secrets)
+.env
+.env.local
+.env.*.local
+.env.development
+.env.production
+*.pem
+*.key
+
+# MCP Engineering session data (per-user, not shared)
+.engineering/sessions/
+.engineering/index/
+.engineering/knowledge/
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+*.temp
+
+# Package manager locks (keep one, remove others if not used)
+# Uncomment the ones you don't use:
+# package-lock.json
+# yarn.lock
+# pnpm-lock.yaml
