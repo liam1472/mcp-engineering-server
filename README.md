@@ -96,21 +96,221 @@ claude mcp add engineering -- node "/path/to/mcp-engineering-server/dist/index.j
 | `/eng-lock <file>` | Lock file for editing |
 | `/eng-unlock <file>` | Unlock file |
 
-## Workflow
+## Workflows & Scenarios
 
+### Scenario 1: New Project Setup
+
+First time using the plugin on a project:
+
+```bash
+/eng-init                    # Auto-detect project type, create .engineering/
+/eng-scan                    # Index all functions in codebase
+/eng-security                # Check for any existing secrets/credentials
 ```
-/eng-init              # Initialize project
-    ↓
-/eng-scan              # Index codebase
-    ↓
-/eng-start feature     # Start feature
-    ↓
-  ... work ...
-    ↓
-/eng-validate          # Check security & index
-    ↓
-/eng-done              # Archive feature + extract knowledge
+
+**What happens:**
+- `.engineering/` directory created with config
+- Project type detected (e.g., `web-node`, `embedded-stm32`, `python-fastapi`)
+- Function index built at `.engineering/index/functions.yaml`
+- Security report generated
+
+---
+
+### Scenario 2: Feature Development (Standard Flow)
+
+Working on a new feature from start to finish:
+
+```bash
+# 1. Start feature - creates context directory
+/eng-start user-authentication
+
+# 2. Work on your code...
+#    Claude assists with implementation
+
+# 3. Before committing - validate everything
+/eng-validate                # Runs: security scan + index update + status check
+
+# 4. If security issues found
+/eng-security --fix          # Auto-create .env, replace hardcoded secrets
+
+# 5. Complete feature - archives context, extracts knowledge
+/eng-done
 ```
+
+**What happens:**
+- Feature directory created at `.engineering/features/user-authentication/`
+- Progress tracked in `progress.yaml`
+- On `/eng-done`: archived to `.engineering/archive/`, learnings extracted to knowledge base
+
+---
+
+### Scenario 3: Security Audit
+
+Find and fix secrets before pushing to git:
+
+```bash
+# Scan for secrets
+/eng-security
+
+# Preview what auto-fix would do (safe, no changes)
+/eng-security --fix --dry-run
+
+# Apply fixes: create .env, replace secrets in code, backup originals
+/eng-security --fix
+```
+
+**Example output:**
+```
+Security Scan Results:
+  CRITICAL: 2 findings
+    - src/config.ts:15 - Hardcoded API key (OPENAI_API_KEY)
+    - src/db.ts:8 - Database password in connection string
+
+  Run `/eng-security --fix` to auto-remediate
+```
+
+---
+
+### Scenario 4: Code Analysis & Refactoring
+
+Find code quality issues:
+
+```bash
+# Find magic numbers, duplicate code, refactoring opportunities
+/eng-refactor
+
+# Preview auto-fix
+/eng-refactor --fix --dry-run
+
+# Apply fixes: extract constants, add config files
+/eng-refactor --fix
+
+# Find duplicate code blocks
+/eng-duplicates
+
+# Analyze dependencies, find circular imports
+/eng-deps
+```
+
+---
+
+### Scenario 5: Search & Discovery
+
+Find code in large codebases:
+
+```bash
+# Search functions by name or description
+/eng-search "authentication"
+/eng-search "parse JSON"
+
+# Find similar code blocks (for refactoring)
+/eng-index-similar "function validateUser(email, password)"
+
+# Query knowledge base from past features
+/eng-knowledge "how did we handle rate limiting"
+
+# Index and search API routes (web projects)
+/eng-routes
+
+# Index hardware peripherals (embedded projects)
+/eng-hardware
+```
+
+---
+
+### Scenario 6: Session Management
+
+Preserve context across Claude sessions:
+
+```bash
+# Save checkpoint before ending session
+/eng-checkpoint
+
+# ... close Claude, come back later ...
+
+# Resume from checkpoint (restores context)
+/eng-resume
+```
+
+---
+
+### Scenario 7: Parallel Development (Multi-Session)
+
+Multiple Claude instances working on same codebase:
+
+```bash
+# Terminal 1: Start session A
+/eng-session-start A
+/eng-lock src/auth/login.ts      # Lock file to prevent conflicts
+
+# Terminal 2: Start session B
+/eng-session-start B
+/eng-lock src/auth/register.ts   # Lock different file
+
+# Check all sessions and locks
+/eng-session-status
+
+# Sync discoveries between sessions
+/eng-session-sync
+
+# When done, unlock files
+/eng-unlock src/auth/login.ts
+```
+
+**Session status output:**
+```
+Active Sessions:
+  A: Working on src/auth/login.ts (locked)
+  B: Working on src/auth/register.ts (locked)
+  C: Inactive
+
+Locked Files:
+  - src/auth/login.ts (Session A)
+  - src/auth/register.ts (Session B)
+```
+
+---
+
+### Scenario 8: Pre-Commit Review
+
+Final checks before creating PR:
+
+```bash
+# Run full validation pipeline
+/eng-pipeline                # build + lint + test + security
+
+# Or run review checklist
+/eng-review                  # Shows: security status, test status, build status
+```
+
+**Review output:**
+```
+Pre-Completion Review:
+  [x] Security scan passed
+  [x] Build successful
+  [x] Tests passing (48/48)
+  [ ] Lint warnings: 3
+
+  Recommendation: Fix lint warnings, then ready for /eng-done
+```
+
+---
+
+### Quick Reference
+
+| Goal | Command |
+|------|---------|
+| Setup new project | `/eng-init` → `/eng-scan` |
+| Start feature | `/eng-start <name>` |
+| Find secrets | `/eng-security` |
+| Fix secrets | `/eng-security --fix` |
+| Search code | `/eng-search <query>` |
+| Find duplicates | `/eng-duplicates` |
+| Check dependencies | `/eng-deps` |
+| Save progress | `/eng-checkpoint` |
+| Resume work | `/eng-resume` |
+| Final validation | `/eng-validate` or `/eng-pipeline` |
+| Complete feature | `/eng-done` |
 
 ## Generated Structure
 
