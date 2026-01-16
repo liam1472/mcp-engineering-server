@@ -1,0 +1,13 @@
+version: 1.0.0
+projectType: web-node
+projectName: mcp-engineering-server
+autoSaveInterval: 300
+security:
+  enabled: true
+  customPatterns: []
+  whitelist: []
+indexes:
+  functions: true
+  errors: true
+  constants: true
+  dependencies: true

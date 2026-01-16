@@ -168,6 +168,17 @@ const IGNORED_EXTENSIONS = new Set([
 
 const IGNORED_DIRS = new Set(['node_modules', '.git', 'dist', 'build', 'vendor', '__pycache__']);
 
+const IGNORED_FILES = new Set([
+  'package-lock.json',
+  'yarn.lock',
+  'pnpm-lock.yaml',
+  'Cargo.lock',
+  'go.sum',
+  'poetry.lock',
+  'Gemfile.lock',
+  'composer.lock',
+]);
+
 export class SecurityScanner {
   private workingDir: string;
   private whitelist: Set<string> = new Set();
@@ -187,7 +198,9 @@ export class SecurityScanner {
 
     for (const file of files) {
       const ext = path.extname(file).toLowerCase();
-      if (IGNORED_EXTENSIONS.has(ext)) {
+      const basename = path.basename(file);
+
+      if (IGNORED_EXTENSIONS.has(ext) || IGNORED_FILES.has(basename)) {
         continue;
       }
 

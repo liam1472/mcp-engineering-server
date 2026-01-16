@@ -5,6 +5,17 @@
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "type": "module",
+  "bin": {
+    "mcp-engineering-server": "./dist/index.js"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/liam1472/mcp-engineering-server.git"
+  },
+  "bugs": {
+    "url": "https://github.com/liam1472/mcp-engineering-server/issues"
+  },
+  "homepage": "https://github.com/liam1472/mcp-engineering-server#readme",
   "scripts": {
     "build": "tsc",
     "dev": "tsc --watch",

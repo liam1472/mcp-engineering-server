@@ -106,8 +106,11 @@ export class ConfigManager {
     }
 
     // Create initial empty files
-    const initialFiles = [
-      ['sessions/context.yaml', 'currentTask: null\ndecisions: []\nfindings: []\nblockers: []\nnextSteps: []\n'],
+    const initialFiles: Array<[string, string]> = [
+      [
+        'sessions/context.yaml',
+        'currentTask: null\ndecisions: []\nfindings: []\nblockers: []\nnextSteps: []\n',
+      ],
       ['security/patterns.yaml', '# Custom security patterns\npatterns: []\n'],
       ['security/whitelist.yaml', '# False positive whitelist\nwhitelist: []\n'],
     ];

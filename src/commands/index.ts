@@ -24,7 +24,8 @@ export function registerCommands(): Tool[] {
     },
     {
       name: 'eng_scan',
-      description: 'Scan codebase and build indexes for functions, errors, constants, and dependencies.',
+      description:
+        'Scan codebase and build indexes for functions, errors, constants, and dependencies.',
       inputSchema: {
         type: 'object',
         properties: {
@@ -67,7 +68,8 @@ export function registerCommands(): Tool[] {
     },
     {
       name: 'eng_validate',
-      description: 'Run validation pipeline: build, lint, security scan, tests, duplicate detection.',
+      description:
+        'Run validation pipeline: build, lint, security scan, tests, duplicate detection.',
       inputSchema: {
         type: 'object',
         properties: {
@@ -81,7 +83,8 @@ export function registerCommands(): Tool[] {
     },
     {
       name: 'eng_done',
-      description: 'Complete current feature. Runs final validation, extracts knowledge, archives feature.',
+      description:
+        'Complete current feature. Runs final validation, extracts knowledge, archives feature.',
       inputSchema: {
         type: 'object',
         properties: {},
@@ -113,6 +116,82 @@ export function registerCommands(): Tool[] {
             description: 'Checkpoint ID or name to resume from',
           },
         },
+      },
+    },
+
+    // Multi-Session Commands
+    {
+      name: 'eng_session_start',
+      description: 'Start a named session (A, B, or C) for parallel development.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          id: {
+            type: 'string',
+            enum: ['A', 'B', 'C'],
+            description: 'Session identifier',
+          },
+        },
+        required: ['id'],
+      },
+    },
+    {
+      name: 'eng_session_status',
+      description: 'View status of all active sessions and their locked files.',
+      inputSchema: {
+        type: 'object',
+        properties: {},
+      },
+    },
+    {
+      name: 'eng_session_switch',
+      description: 'Switch to a different session.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          id: {
+            type: 'string',
+            enum: ['A', 'B', 'C'],
+            description: 'Session to switch to',
+          },
+        },
+        required: ['id'],
+      },
+    },
+    {
+      name: 'eng_session_sync',
+      description: 'Sync discoveries and check for conflicts with other sessions.',
+      inputSchema: {
+        type: 'object',
+        properties: {},
+      },
+    },
+    {
+      name: 'eng_lock',
+      description: 'Lock a file to prevent conflicts with other sessions.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          file: {
+            type: 'string',
+            description: 'File path to lock',
+          },
+        },
+        required: ['file'],
+      },
+    },
+    {
+      name: 'eng_unlock',
+      description: 'Unlock a previously locked file.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          file: {
+            type: 'string',
+            description: 'File path to unlock',
+          },
+        },
+        required: ['file'],
       },
     },
 

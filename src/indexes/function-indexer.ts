@@ -192,10 +192,9 @@ export class FunctionIndexer {
 
     return params.split(',').map(p => {
       const parts = p.trim().split(/[:\s]+/);
-      return {
-        name: parts[0]?.replace(/[*&]/, '') ?? '',
-        type: parts[1]?.trim(),
-      };
+      const name = parts[0]?.replace(/[*&]/, '') ?? '';
+      const type = parts[1]?.trim();
+      return type !== undefined ? { name, type } : { name };
     });
   }
 
