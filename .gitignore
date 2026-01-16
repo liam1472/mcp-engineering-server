@@ -49,6 +49,8 @@ coverage/
 # Local docs (not for distribution)
 CLAUDE.md
 MCP_SERVER_IMPLEMENTATION_GUIDE.md
+MASTER-PLAN.md
+ROADMAP.md
 
 # Generated engineering data
 .engineering/
