@@ -170,3 +170,89 @@ export const HardwareConfigSchema = z.object({
     })
   ),
 });
+
+export type HardwareConfig = z.infer<typeof HardwareConfigSchema>;
+
+// Profile type for template selection (maps multiple ProjectTypes to a single profile)
+export const ProfileTypeSchema = z.enum([
+  'embedded',
+  'dotnet',
+  'web',
+  'native',
+  'python',
+  'unknown',
+]);
+
+export type ProfileType = z.infer<typeof ProfileTypeSchema>;
+
+/**
+ * Maps specific ProjectType to broader ProfileType for template selection
+ */
+export function getProfileType(projectType: ProjectType | string): ProfileType {
+  const typeStr = projectType.toString().toLowerCase();
+
+  // Support both full format (embedded-stm32) and short format (stm32)
+  if (typeStr.startsWith('embedded-') ||
+      ['stm32', 'esp32', 'zephyr', 'arduino'].includes(typeStr)) {
+    return 'embedded';
+  }
+
+  if (typeStr.startsWith('dotnet-') ||
+      ['aspnet', 'wpf', 'maui', 'blazor'].includes(typeStr)) {
+    return 'dotnet';
+  }
+
+  if (typeStr.startsWith('web-') ||
+      ['react', 'vue', 'angular', 'nextjs', 'node', 'express'].includes(typeStr)) {
+    return 'web';
+  }
+
+  if (typeStr.startsWith('native-') ||
+      ['cmake', 'rust', 'go'].includes(typeStr)) {
+    return 'native';
+  }
+
+  if (typeStr.startsWith('python-') ||
+      ['django', 'flask'].includes(typeStr)) {
+    return 'python';
+  }
+
+  return 'unknown';
+}
+
+// Security Pattern (for YAML pattern loading)
+export const SecurityPatternSchema = z.object({
+  name: z.string(),
+  regex: z.string(),
+  severity: z.enum(['critical', 'warning', 'info']),
+  type: z.enum(['secret', 'safety']),
+  message: z.string(),
+  suggestion: z.string().optional(),
+  rationale: z.string().optional(),
+  tags: z.array(z.string()).optional(),
+});
+
+export type SecurityPattern = z.infer<typeof SecurityPatternSchema>;
+
+// Security Pattern Profile (YAML file structure)
+export const SecurityPatternProfileSchema = z.object({
+  profile: z.string(),
+  description: z.string().optional(),
+  version: z.string().optional(),
+  patterns: z.array(SecurityPatternSchema),
+});
+
+export type SecurityPatternProfile = z.infer<typeof SecurityPatternProfileSchema>;
+
+// Architectural Gap (for /eng-init report)
+export interface ArchitecturalGap {
+  name: string;
+  description: string;
+  severity: 'critical' | 'warning' | 'info';
+  suggestion: string;
+}
+
+export interface ArchitecturalReport {
+  gaps: ArchitecturalGap[];
+  recommendations: string[];
+}
