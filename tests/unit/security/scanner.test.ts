@@ -1308,20 +1308,32 @@ const KEY3 = process.env.AWS_ACCESS_KEY;`);
     });
 
     describe('blocked files handling (line 443)', () => {
-      it.skip('should report blocked files in errors (line 443)', async () => {
-        // Create a finding in protected path
-        await fs.mkdir(path.join(tempDir, 'node_modules', 'pkg'), { recursive: true });
-        await writeTestFile(
-          path.join(tempDir, 'node_modules', 'pkg', 'index.js'),
-          `const KEY = 'AKIAIOSFODNN7EXAMPLE';`
-        );
+      it('should report blocked files in errors (line 443)', async () => {
+        // Create a protected file with a secret
+        await fs.mkdir(path.join(tempDir, 'node_modules'), { recursive: true });
+        const protectedFile = path.join(tempDir, 'node_modules', 'test.js');
+        await writeTestFile(protectedFile, `const KEY = 'AKIAIOSFODNN7EXAMPLE';`);
 
-        const findings = await scanner.scan();
+        // Manually create finding pointing to protected file (scan() ignores node_modules)
+        const findings: SecurityFinding[] = [
+          {
+            type: 'secret',
+            severity: 'critical',
+            file: 'node_modules/test.js',
+            line: 1,
+            match: 'AKIAIOSFODNN7EXAMPLE',
+            pattern: 'AWS Access Key',
+            message: 'AWS Access Key detected',
+          },
+        ];
+
         const result = await scanner.applyFixes(findings);
 
         expect(result.filesBlocked.length).toBeGreaterThan(0);
+        expect(result.filesBlocked[0]?.file).toBe('node_modules/test.js');
         expect(result.errors.length).toBeGreaterThan(0);
         expect(result.errors[0]).toContain('Blocked');
+        expect(result.errors[0]).toContain('node_modules');
       });
 
       it('should have empty filesBlocked when no protected files', async () => {
