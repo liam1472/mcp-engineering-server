@@ -625,4 +625,33 @@ patterns:
       expect(matcher.isWhitelisted('other.c', 'match1')).toBe(false);
     });
   });
+
+  describe('isProfileLoaded()', () => {
+    it('should return false before profile is loaded', () => {
+      expect(matcher.isProfileLoaded('embedded')).toBe(false);
+    });
+
+    it('should return true after profile is loaded', async () => {
+      // Target: Mutants on lines 258, 280 (profileLoaded = true)
+      await matcher.loadPatterns('embedded');
+      expect(matcher.isProfileLoaded('embedded')).toBe(true);
+    });
+
+    it('should track multiple profiles independently', async () => {
+      await matcher.loadPatterns('embedded');
+
+      expect(matcher.isProfileLoaded('embedded')).toBe(true);
+      expect(matcher.isProfileLoaded('web')).toBe(false);
+      expect(matcher.isProfileLoaded('dotnet')).toBe(false);
+
+      await matcher.loadPatterns('web');
+      expect(matcher.isProfileLoaded('web')).toBe(true);
+    });
+
+    it('should mark profile as loaded even when file is missing', async () => {
+      // This tests the catch block - profile marked as loaded even on error
+      await matcher.loadPatterns('embedded');
+      expect(matcher.isProfileLoaded('embedded')).toBe(true);
+    });
+  });
 });

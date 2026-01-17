@@ -46,6 +46,7 @@ export class SafetyPatternMatcher {
   private profilePatterns: Map<string, SafetyPattern[]> = new Map();
   private customPatterns: SafetyPattern[] = [];
   private whitelist: Set<string> = new Set();
+  private profilesLoaded: Set<ProfileType> = new Set();
 
   /**
    * Load patterns for a specific profile
@@ -87,12 +88,22 @@ export class SafetyPatternMatcher {
       }
 
       this.profilePatterns.set(profile, patterns);
+      this.profilesLoaded.add(profile);
     } catch {
       // Pattern file doesn't exist, return empty array
       this.profilePatterns.set(profile, []);
+      this.profilesLoaded.add(profile);
     }
 
     return patterns;
+  }
+
+  /**
+   * Check if a profile has been loaded
+   * Public for testing and status checks
+   */
+  public isProfileLoaded(profile: ProfileType): boolean {
+    return this.profilesLoaded.has(profile);
   }
 
   /**

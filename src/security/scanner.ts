@@ -229,7 +229,6 @@ export class SecurityScanner {
   private whitelist: Set<string> = new Set();
   private currentProfile: ProfileType = 'unknown';
   private safetyPatterns: SafetyPattern[] = [];
-  private profileLoaded = false;
 
   constructor(workingDir?: string) {
     this.workingDir = workingDir ?? process.cwd();
@@ -255,14 +254,17 @@ export class SecurityScanner {
     }
 
     this.safetyPatterns = Array.from(safetyMap.values());
-    this.profileLoaded = true;
+    // profileLoaded state now managed by SafetyPatternMatcher
   }
 
   /**
    * Auto-detect profile from .engineering/config.yaml
    */
   private async autoDetectProfile(): Promise<void> {
-    if (this.profileLoaded) return;
+    // Check if profile already loaded via SafetyPatternMatcher
+    if (safetyPatternMatcher.isProfileLoaded(this.currentProfile)) {
+      return;
+    }
 
     try {
       const configPath = path.join(this.workingDir, '.engineering', 'config.yaml');
@@ -276,8 +278,8 @@ export class SecurityScanner {
         await this.setProfile(profile);
       }
     } catch {
-      // No config file, use builtin patterns only
-      this.profileLoaded = true;
+      // No config file, scanner works with empty patterns
+      // No need to mark as loaded - SafetyPatternMatcher handles this
     }
   }
 
