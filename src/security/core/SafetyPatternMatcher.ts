@@ -12,19 +12,126 @@
  * - Pure functions for pattern matching
  */
 
-import type { SafetyPattern, SecurityFinding, ProfileType } from '../../types/index.js';
+import * as fs from 'fs/promises';
+import * as path from 'path';
+import { fileURLToPath } from 'url';
+import { parse } from 'yaml';
+import type { ProfileType, SecurityPatternProfile } from '../../types/index.js';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+
+// Internal SafetyPattern type with compiled RegExp
+export interface SafetyPattern {
+  name: string;
+  type: 'safety';
+  severity: 'critical' | 'warning' | 'info';
+  pattern: RegExp;
+  message: string;
+  suggestion: string | undefined;
+  rationale: string | undefined;
+  tags: string[] | undefined;
+}
+
+export interface SecurityFinding {
+  type: 'secret' | 'credential' | 'key' | 'token' | 'password' | 'pii';
+  severity: 'critical' | 'high' | 'medium' | 'low';
+  file: string;
+  line: number;
+  pattern: string;
+  match: string;
+  suggestion: string;
+}
 
 export class SafetyPatternMatcher {
-  private patterns: Map<ProfileType, SafetyPattern[]> = new Map();
+  private profilePatterns: Map<string, SafetyPattern[]> = new Map();
+  private customPatterns: SafetyPattern[] = [];
 
   /**
    * Load patterns for a specific profile
    * @param profile - The profile type to load patterns for
    */
   async loadPatterns(profile: ProfileType): Promise<SafetyPattern[]> {
-    // TODO: Implementation will be extracted from scanner.ts
-    // This will be the loadProfilePatterns() logic
-    return [];
+    if (profile === 'unknown') return [];
+
+    // Check cache
+    if (this.profilePatterns.has(profile)) {
+      return this.profilePatterns.get(profile) ?? [];
+    }
+
+    const patterns: SafetyPattern[] = [];
+    const patternsDir = path.join(__dirname, '..', '..', 'config', 'patterns');
+    const patternFile = path.join(patternsDir, `${profile}.yaml`);
+
+    try {
+      await fs.access(patternFile);
+      const content = await fs.readFile(patternFile, 'utf-8');
+      const parsed = parse(content) as SecurityPatternProfile;
+
+      for (const p of parsed.patterns) {
+        try {
+          patterns.push({
+            name: p.name,
+            type: 'safety',
+            severity: p.severity,
+            pattern: new RegExp(p.regex, 'g'),
+            message: p.message,
+            suggestion: p.suggestion,
+            rationale: p.rationale,
+            tags: p.tags,
+          });
+        } catch (regexError) {
+          // Skip invalid regex patterns
+          console.error(`Invalid regex in ${profile}.yaml for pattern "${p.name}": ${regexError}`);
+        }
+      }
+
+      this.profilePatterns.set(profile, patterns);
+    } catch {
+      // Pattern file doesn't exist, return empty array
+      this.profilePatterns.set(profile, []);
+    }
+
+    return patterns;
+  }
+
+  /**
+   * Load custom patterns from .engineering/security/custom.yaml
+   * @param workingDir - Working directory containing .engineering/
+   */
+  async loadCustomPatterns(workingDir: string): Promise<SafetyPattern[]> {
+    const customFile = path.join(workingDir, '.engineering', 'security', 'custom.yaml');
+
+    try {
+      await fs.access(customFile);
+      const content = await fs.readFile(customFile, 'utf-8');
+      const parsed = parse(content) as { patterns?: SecurityPatternProfile['patterns'] };
+
+      if (!parsed.patterns) return [];
+
+      const patterns: SafetyPattern[] = [];
+      for (const p of parsed.patterns) {
+        try {
+          patterns.push({
+            name: p.name,
+            type: 'safety',
+            severity: p.severity,
+            pattern: new RegExp(p.regex, 'g'),
+            message: p.message,
+            suggestion: p.suggestion,
+            rationale: p.rationale,
+            tags: p.tags,
+          });
+        } catch {
+          // Skip invalid regex
+        }
+      }
+
+      this.customPatterns = patterns;
+      return patterns;
+    } catch {
+      // No custom patterns file
+      return [];
+    }
   }
 
   /**
@@ -52,5 +159,20 @@ export class SafetyPatternMatcher {
   isWhitelisted(filePath: string, match: string): boolean {
     // TODO: Implementation will be extracted from scanner.ts
     return false;
+  }
+
+  /**
+   * Get cached patterns for a profile (for testing)
+   */
+  getCachedPatterns(profile: ProfileType): SafetyPattern[] | undefined {
+    return this.profilePatterns.get(profile);
+  }
+
+  /**
+   * Clear all cached patterns (for testing)
+   */
+  clearCache(): void {
+    this.profilePatterns.clear();
+    this.customPatterns = [];
   }
 }
