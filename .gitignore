@@ -68,6 +68,16 @@ mutation-output.txt
 reports/
 .stryker-tmp/
 
+# Internal documentation (not for remote GitHub, keep only README.md public)
+COMPREHENSIVE-REVIEW.md
+MUTATION-ANALYSIS.md
+PHASE-*.md
+REFACTOR-PLAN.md
+ROADMAP.md
+TICKETREMAIN.md
+TESTINSTRUCT.md
+UPGRADE.md
+
 # Package manager locks (keep one, remove others if not used)
 # Uncomment the ones you don't use:
 # package-lock.json
