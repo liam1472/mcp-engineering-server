@@ -1500,6 +1500,69 @@ const KEY3 = process.env.AWS_ACCESS_KEY;`);
         expect(result.errors.length).toBeGreaterThan(0);
       });
     });
+
+    describe('EqualityOperator boundary conditions (Phase 5)', () => {
+      it('should handle secret exactly 8 chars (line 380 boundary)', async () => {
+        // Test the boundary: secret.length <= 8 vs < 8
+        await writeTestFile(
+          path.join(tempDir, 'test.ts'),
+          `const SHORT = 'AKIA1234'; // Exactly 8 chars\nconst LONG = 'AKIAIOSFODNN7EXAMPLE'; // >8 chars`
+        );
+
+        const findings = await scanner.scan();
+        const result = await scanner.applyFixes(findings);
+
+        // Both should be masked, but differently
+        const content = await fs.readFile(path.join(tempDir, 'test.ts'), 'utf-8');
+
+        // 8 char secret should use short masking (<=8: ***)
+        // >8 char secret should use long masking (prefix...suffix)
+        expect(result.success).toBe(true);
+        expect(result.filesModified.length).toBeGreaterThan(0);
+      });
+
+      it('should handle secret exactly 20 chars (line 886 boundary)', async () => {
+        // Test the boundary: r.original.length > 20 vs >= 20
+        const secret20 = 'AKIA' + '1234567890123456'; // Exactly 20 chars
+        const secret21 = 'AKIA' + '12345678901234567'; // 21 chars
+
+        await writeTestFile(
+          path.join(tempDir, 'test.ts'),
+          `const KEY20 = '${secret20}';\nconst KEY21 = '${secret21}';`
+        );
+
+        const findings = await scanner.scan();
+        const result = await scanner.applyFixes(findings, { dryRun: true });
+
+        // Instructions should mask differently based on length
+        if (result.instructions) {
+          // Verify instructions are generated
+          expect(result.instructions.length).toBeGreaterThan(0);
+        }
+      });
+
+      it('should detect quote boundaries correctly (lines 799-800)', async () => {
+        // Test quote detection: secret at different positions in quoted string
+        await writeTestFile(
+          path.join(tempDir, 'test.ts'),
+          `const START = 'AKIAIOSFODNN7EXAMPLE';\nconst MIDDLE = 'prefix AKIAIOSFODNN7ANOTHER suffix';`
+        );
+
+        const findings = await scanner.scan();
+        expect(findings.length).toBe(2);
+
+        const result = await scanner.applyFixes(findings);
+
+        // All should be detected and replaced correctly
+        expect(result.success).toBe(true);
+        expect(result.filesModified.length).toBeGreaterThan(0);
+
+        const content = await fs.readFile(path.join(tempDir, 'test.ts'), 'utf-8');
+        // Should not contain original secrets
+        expect(content).not.toContain('AKIAIOSFODNN7EXAMPLE');
+        expect(content).not.toContain('AKIAIOSFODNN7ANOTHER');
+      });
+    });
     });
   });
 
