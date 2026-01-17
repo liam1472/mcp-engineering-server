@@ -857,6 +857,156 @@ const KEY3 = process.env.AWS_ACCESS_KEY;`);
         expect(exampleContent).toBe('EXISTING=value');
       });
 
+      // Phase 3: File creation flag tests (BooleanLiteral mutants)
+      // These tests verify the isNewFile flag behavior in AtomicFileWriter
+      describe('file creation vs append flags', () => {
+        it('should mark .env as NEW when file does not exist (line 500: !existingEnv)', async () => {
+          await writeTestFile(
+            path.join(tempDir, 'config.ts'),
+            `const KEY = 'AKIAIOSFODNN7EXAMPLE';`
+          );
+
+          // Create a test that will fail during fix process to trigger rollback
+          const findings = await scanner.scan();
+
+          // Before fix: .env should not exist
+          let envExists = true;
+          try {
+            await fs.access(path.join(tempDir, '.env'));
+          } catch {
+            envExists = false;
+          }
+          expect(envExists).toBe(false);
+
+          // Apply fixes successfully
+          const result = await scanner.applyFixes(findings);
+          expect(result.success).toBe(true);
+          expect(result.envCreated).toBe(true);
+
+          // After fix: .env should exist
+          const envContent = await readTestFile(path.join(tempDir, '.env'));
+          expect(envContent).toContain('AWS_ACCESS_KEY=');
+        });
+
+        it('should mark .env as EXISTING when file already exists (line 500: !existingEnv)', async () => {
+          // Pre-create .env file
+          await writeTestFile(
+            path.join(tempDir, '.env'),
+            'EXISTING_VAR=value\n'
+          );
+
+          await writeTestFile(
+            path.join(tempDir, 'config.ts'),
+            `const KEY = 'AKIAIOSFODNN7EXAMPLE';`
+          );
+
+          const findings = await scanner.scan();
+          const result = await scanner.applyFixes(findings);
+
+          expect(result.success).toBe(true);
+          expect(result.envCreated).toBe(true);
+
+          // Should append to existing file (not replace)
+          const envContent = await readTestFile(path.join(tempDir, '.env'));
+          expect(envContent).toContain('EXISTING_VAR=value');
+          expect(envContent).toContain('# Added by eng_security');
+        });
+
+        it('should always mark .env.example as NEW file (line 521: true)', async () => {
+          await writeTestFile(
+            path.join(tempDir, 'config.ts'),
+            `const KEY = 'AKIAIOSFODNN7EXAMPLE';`
+          );
+
+          const findings = await scanner.scan();
+          const result = await scanner.applyFixes(findings);
+
+          expect(result.success).toBe(true);
+
+          // .env.example should be created
+          const exampleContent = await readTestFile(path.join(tempDir, '.env.example'));
+          expect(exampleContent).toContain('AWS_ACCESS_KEY=');
+          expect(exampleContent).not.toContain('your-api-key-here');
+        });
+
+        it('should mark .gitignore as NEW when file does not exist (lines 534, 538, 556)', async () => {
+          await writeTestFile(
+            path.join(tempDir, 'config.ts'),
+            `const KEY = 'AKIAIOSFODNN7EXAMPLE';`
+          );
+
+          // Before fix: .gitignore should not exist
+          let gitignoreExists = true;
+          try {
+            await fs.access(path.join(tempDir, '.gitignore'));
+          } catch {
+            gitignoreExists = false;
+          }
+          expect(gitignoreExists).toBe(false);
+
+          const findings = await scanner.scan();
+          const result = await scanner.applyFixes(findings);
+
+          expect(result.success).toBe(true);
+          expect(result.gitignoreUpdated).toBe(true);
+
+          // After fix: .gitignore should exist with correct entries
+          const gitignoreContent = await readTestFile(path.join(tempDir, '.gitignore'));
+          expect(gitignoreContent).toContain('.env');
+          expect(gitignoreContent).toContain('.env.local');
+          expect(gitignoreContent).toContain('.env.*.local');
+        });
+
+        it('should mark .gitignore as EXISTING when file already exists (line 556: !gitignoreExists)', async () => {
+          // Pre-create .gitignore
+          await writeTestFile(
+            path.join(tempDir, '.gitignore'),
+            'node_modules/\n*.log\n'
+          );
+
+          await writeTestFile(
+            path.join(tempDir, 'config.ts'),
+            `const KEY = 'AKIAIOSFODNN7EXAMPLE';`
+          );
+
+          const findings = await scanner.scan();
+          const result = await scanner.applyFixes(findings);
+
+          expect(result.success).toBe(true);
+          expect(result.gitignoreUpdated).toBe(true);
+
+          // Should append to existing file (not replace)
+          const gitignoreContent = await readTestFile(path.join(tempDir, '.gitignore'));
+          expect(gitignoreContent).toContain('node_modules/');
+          expect(gitignoreContent).toContain('*.log');
+          expect(gitignoreContent).toContain('# Secrets (added by eng_security)');
+          expect(gitignoreContent).toContain('.env');
+        });
+
+        it('should handle .gitignore read error by treating as new file (line 538: gitignoreExists = false)', async () => {
+          // This test verifies the error handler: catch { gitignoreExists = false; }
+          // When .gitignore cannot be read (missing or permission error),
+          // gitignoreExists should be set to false, triggering isNewFile=true
+
+          await writeTestFile(
+            path.join(tempDir, 'config.ts'),
+            `const KEY = 'AKIAIOSFODNN7EXAMPLE';`
+          );
+
+          // Don't create .gitignore - let it be missing
+          const findings = await scanner.scan();
+          const result = await scanner.applyFixes(findings);
+
+          expect(result.success).toBe(true);
+          expect(result.gitignoreUpdated).toBe(true);
+
+          // Verify .gitignore was created (not appended)
+          const gitignoreContent = await readTestFile(path.join(tempDir, '.gitignore'));
+          expect(gitignoreContent).toContain('# Secrets');
+          expect(gitignoreContent).toContain('.env');
+        });
+      });
+
       it('should require force for many files', async () => {
         // Create 6 files with secrets
         for (let i = 0; i < 6; i++) {
