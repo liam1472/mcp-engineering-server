@@ -7,6 +7,7 @@ import * as path from 'path';
 import * as fs from 'fs/promises';
 import * as os from 'os';
 import { SecurityScanner } from '../../../src/security/scanner.js';
+import type { SecurityFinding } from '../../../src/types/index.js';
 import {
   createTempDir,
   cleanupTempDir,
@@ -509,10 +510,167 @@ const uri = 'mongodb://user:pass@localhost/db';`
         const findings = await scanner.scan();
         const fix = await scanner.generateFixes(findings);
 
-        // Should include import instructions
-        expect(fix.instructions).toContain('Add necessary imports');
-        expect(fix.instructions).toContain('Python: import os');
-        expect(fix.instructions).toContain('Go: import "os"');
+        // Should include import instructions with exact format
+        expect(fix.instructions).toContain('4. Add necessary imports for environment variable access:');
+        expect(fix.instructions).toContain('   Python: import os');
+        expect(fix.instructions).toContain('   Go: import "os"');
+
+        // Verify instructions are newline-separated
+        const lines = fix.instructions.split('\n');
+        expect(lines).toContain('4. Add necessary imports for environment variable access:');
+        expect(lines).toContain('   Python: import os');
+        expect(lines).toContain('   Go: import "os"');
+      });
+
+      it('should include C# import instruction when C# files present', async () => {
+        await writeTestFile(
+          path.join(tempDir, 'Config.cs'),
+          `const string KEY = "AKIAIOSFODNN7EXAMPLE";`
+        );
+
+        const findings = await scanner.scan();
+        const fix = await scanner.generateFixes(findings);
+
+        // Should include C# import
+        expect(fix.instructions).toContain('   C#: using System;');
+      });
+
+      it('should not include import section for JS/TS only projects', async () => {
+        await writeTestFile(
+          path.join(tempDir, 'config.ts'),
+          `const KEY = 'AKIAIOSFODNN7EXAMPLE';`
+        );
+
+        const findings = await scanner.scan();
+        const fix = await scanner.generateFixes(findings);
+
+        // Should NOT include import instructions for JS/TS
+        expect(fix.instructions).not.toContain('Add necessary imports');
+        expect(fix.instructions).not.toContain('Python: import os');
+      });
+
+      it('should include empty line after import instructions', async () => {
+        await writeTestFile(
+          path.join(tempDir, 'config.py'),
+          `API_KEY = 'AKIAIOSFODNN7EXAMPLE'`
+        );
+
+        const findings = await scanner.scan();
+        const fix = await scanner.generateFixes(findings);
+
+        // Verify empty line exists after C# import instruction (scanner.ts:1047)
+        const lines = fix.instructions.split('\n');
+        const csImportIdx = lines.findIndex(l => l.includes('C#: using System;'));
+        expect(csImportIdx).toBeGreaterThan(-1);
+        expect(lines[csImportIdx + 1]).toBe('');
+      });
+
+      it('should have exactly 4 lines in import section plus empty line', async () => {
+        await writeTestFile(
+          path.join(tempDir, 'main.go'),
+          `const apiKey = "AKIAIOSFODNN7EXAMPLE"`
+        );
+
+        const findings = await scanner.scan();
+        const fix = await scanner.generateFixes(findings);
+
+        // Find import section
+        const step4Idx = fix.instructions.indexOf('4. Add necessary imports');
+        const totalIdx = fix.instructions.indexOf('\nTotal:');
+        expect(step4Idx).toBeGreaterThan(-1);
+        expect(totalIdx).toBeGreaterThan(step4Idx);
+
+        // Extract section and verify structure
+        const section = fix.instructions.substring(step4Idx, totalIdx);
+        const sectionLines = section.split('\n');
+
+        // Should be: header, python, go, c#, empty, newline before Total (6 lines)
+        expect(sectionLines.length).toBe(6);
+        expect(sectionLines[4]).toBe(''); // Empty line after C#
+        expect(sectionLines[5]).toBe(''); // Newline before Total
+      });
+
+      it('should have Total line with newline prefix', async () => {
+        await writeTestFile(
+          path.join(tempDir, 'test.ts'),
+          `const KEY = 'AKIAIOSFODNN7EXAMPLE';`
+        );
+
+        const findings = await scanner.scan();
+        const fix = await scanner.generateFixes(findings);
+
+        // Verify Total starts with \n (scanner.ts:1051)
+        expect(fix.instructions).toContain('\nTotal: 1 secret(s)');
+      });
+
+      it('should count secrets and locations correctly in Total', async () => {
+        // Write two separate files with different secrets
+        await writeTestFile(
+          path.join(tempDir, 'aws.ts'),
+          `const KEY1 = 'AKIAIOSFODNN7EXAMPLE';`
+        );
+        await writeTestFile(
+          path.join(tempDir, 'openai.ts'),
+          `const KEY2 = 'sk-proj-test123456789012345678901234567890123456789012345678';`
+        );
+
+        const findings = await scanner.scan();
+        const fix = await scanner.generateFixes(findings);
+
+        // Should find 2 different secrets in 2 files
+        expect(findings.length).toBe(2);
+        expect(fix.instructions).toMatch(/\nTotal: 2 secret\(s\) to fix in 2 location\(s\)/);
+      });
+
+      it('should have all three import languages in correct order', async () => {
+        await writeTestFile(
+          path.join(tempDir, 'script.py'),
+          `KEY = "AKIAIOSFODNN7EXAMPLE"`
+        );
+
+        const findings = await scanner.scan();
+        const fix = await scanner.generateFixes(findings);
+
+        // Verify order: Python, then Go, then C#
+        const pythonIdx = fix.instructions.indexOf('Python: import os');
+        const goIdx = fix.instructions.indexOf('Go: import "os"');
+        const csIdx = fix.instructions.indexOf('C#: using System;');
+
+        expect(pythonIdx).toBeGreaterThan(-1);
+        expect(goIdx).toBeGreaterThan(pythonIdx);
+        expect(csIdx).toBeGreaterThan(goIdx);
+      });
+
+      it('should NOT include import instructions for .mjs files', async () => {
+        await writeTestFile(
+          path.join(tempDir, 'module.mjs'),
+          `const KEY = 'AKIAIOSFODNN7EXAMPLE';`
+        );
+
+        const findings = await scanner.scan();
+        const fix = await scanner.generateFixes(findings);
+
+        // .mjs is in JS extension list, should NOT trigger import section
+        expect(fix.instructions).not.toContain('4. Add necessary imports');
+        expect(fix.instructions).not.toContain('Python: import os');
+        expect(fix.instructions).not.toContain('Go: import "os"');
+        expect(fix.instructions).not.toContain('C#: using System;');
+      });
+
+      it('should NOT include import instructions for .cjs files', async () => {
+        await writeTestFile(
+          path.join(tempDir, 'common.cjs'),
+          `const KEY = 'AKIAIOSFODNN7EXAMPLE';`
+        );
+
+        const findings = await scanner.scan();
+        const fix = await scanner.generateFixes(findings);
+
+        // .cjs is in JS extension list, should NOT trigger import section
+        expect(fix.instructions).not.toContain('4. Add necessary imports');
+        expect(fix.instructions).not.toContain('Python: import os');
+        expect(fix.instructions).not.toContain('Go: import "os"');
+        expect(fix.instructions).not.toContain('C#: using System;');
       });
     });
 
@@ -1675,6 +1833,558 @@ const KEY3 = process.env.AWS_ACCESS_KEY;`);
         expect(result.summary).toContain('\n  1. Review');
         expect(result.summary).toContain('\n  2. Update .env');
         expect(result.summary).toContain('\n  3. Ensure required env imports');
+      });
+    });
+
+    describe('file extension handling', () => {
+      let tempDir: string;
+      let scanner: SecurityScanner;
+
+      beforeEach(async () => {
+        tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'scanner-test-'));
+        scanner = new SecurityScanner(tempDir);
+      });
+
+      afterEach(async () => {
+        try {
+          await fs.rm(tempDir, { recursive: true, force: true });
+        } catch {
+          // ignore
+        }
+      });
+
+      it('should generate process.env for .ts files', async () => {
+        await writeTestFile(
+          path.join(tempDir, 'config.ts'),
+          `const KEY = 'AKIAIOSFODNN7EXAMPLE';`
+        );
+
+        const findings = await scanner.scan();
+        const fix = await scanner.generateFixes(findings);
+
+        expect(fix.codeReplacements[0]?.replacement).toBe('process.env.AWS_ACCESS_KEY');
+        // TypeScript must NOT use Python/Go/C# syntax (kills array mutants at line 962)
+        expect(fix.codeReplacements[0]?.replacement).not.toContain('os.environ');
+        expect(fix.codeReplacements[0]?.replacement).not.toContain('os.Getenv');
+        expect(fix.codeReplacements[0]?.replacement).not.toContain('Environment.Get');
+      });
+
+      it('should generate process.env for .tsx files', async () => {
+        await writeTestFile(
+          path.join(tempDir, 'Component.tsx'),
+          `const KEY = 'AKIAIOSFODNN7EXAMPLE';`
+        );
+
+        const findings = await scanner.scan();
+        const fix = await scanner.generateFixes(findings);
+
+        expect(fix.codeReplacements[0]?.replacement).toBe('process.env.AWS_ACCESS_KEY');
+      });
+
+      it('should generate process.env for .js files', async () => {
+        await writeTestFile(
+          path.join(tempDir, 'config.js'),
+          `const KEY = 'AKIAIOSFODNN7EXAMPLE';`
+        );
+
+        const findings = await scanner.scan();
+        const fix = await scanner.generateFixes(findings);
+
+        expect(fix.codeReplacements[0]?.replacement).toBe('process.env.AWS_ACCESS_KEY');
+      });
+
+      it('should generate process.env for .jsx files', async () => {
+        await writeTestFile(
+          path.join(tempDir, 'Component.jsx'),
+          `const KEY = 'AKIAIOSFODNN7EXAMPLE';`
+        );
+
+        const findings = await scanner.scan();
+        const fix = await scanner.generateFixes(findings);
+
+        expect(fix.codeReplacements[0]?.replacement).toBe('process.env.AWS_ACCESS_KEY');
+      });
+
+      it('should generate process.env for .mjs files', async () => {
+        await writeTestFile(
+          path.join(tempDir, 'config.mjs'),
+          `const KEY = 'AKIAIOSFODNN7EXAMPLE';`
+        );
+
+        const findings = await scanner.scan();
+        const fix = await scanner.generateFixes(findings);
+
+        expect(fix.codeReplacements[0]?.replacement).toBe('process.env.AWS_ACCESS_KEY');
+      });
+
+      it('should generate process.env for .cjs files', async () => {
+        await writeTestFile(
+          path.join(tempDir, 'config.cjs'),
+          `const KEY = 'AKIAIOSFODNN7EXAMPLE';`
+        );
+
+        const findings = await scanner.scan();
+        const fix = await scanner.generateFixes(findings);
+
+        expect(fix.codeReplacements[0]?.replacement).toBe('process.env.AWS_ACCESS_KEY');
+      });
+
+      it('should generate getenv for .c files', async () => {
+        await writeTestFile(
+          path.join(tempDir, 'config.c'),
+          `const char* KEY = "AKIAIOSFODNN7EXAMPLE";`
+        );
+
+        const findings = await scanner.scan();
+        const fix = await scanner.generateFixes(findings);
+
+        expect(fix.codeReplacements[0]?.replacement).toBe('getenv("AWS_ACCESS_KEY")');
+      });
+
+      it('should generate getenv for .cpp files', async () => {
+        await writeTestFile(
+          path.join(tempDir, 'config.cpp'),
+          `const char* KEY = "AKIAIOSFODNN7EXAMPLE";`
+        );
+
+        const findings = await scanner.scan();
+        const fix = await scanner.generateFixes(findings);
+
+        expect(fix.codeReplacements[0]?.replacement).toBe('getenv("AWS_ACCESS_KEY")');
+      });
+
+      it('should generate getenv for .h files', async () => {
+        await writeTestFile(
+          path.join(tempDir, 'config.h'),
+          `#define KEY "AKIAIOSFODNN7EXAMPLE"`
+        );
+
+        const findings = await scanner.scan();
+        const fix = await scanner.generateFixes(findings);
+
+        expect(fix.codeReplacements[0]?.replacement).toBe('getenv("AWS_ACCESS_KEY")');
+      });
+
+      it('should generate getenv for .hpp files', async () => {
+        await writeTestFile(
+          path.join(tempDir, 'config.hpp'),
+          `const char* KEY = "AKIAIOSFODNN7EXAMPLE";`
+        );
+
+        const findings = await scanner.scan();
+        const fix = await scanner.generateFixes(findings);
+
+        expect(fix.codeReplacements[0]?.replacement).toBe('getenv("AWS_ACCESS_KEY")');
+      });
+
+      it('should generate os.environ.get for .py files', async () => {
+        await writeTestFile(
+          path.join(tempDir, 'script.py'),
+          `KEY = 'AKIAIOSFODNN7EXAMPLE'`
+        );
+
+        const findings = await scanner.scan();
+        const fix = await scanner.generateFixes(findings);
+
+        expect(fix.codeReplacements[0]?.replacement).toBe("os.environ.get('AWS_ACCESS_KEY')");
+        // Python must NOT use process.env (kills array mutants at line 962)
+        expect(fix.codeReplacements[0]?.replacement).not.toContain('process.env');
+        // Should include Python import instruction
+        expect(fix.instructions).toContain('Python: import os');
+      });
+
+      it('should generate os.Getenv for .go files', async () => {
+        await writeTestFile(
+          path.join(tempDir, 'main.go'),
+          `key := "AKIAIOSFODNN7EXAMPLE"`
+        );
+
+        const findings = await scanner.scan();
+        const fix = await scanner.generateFixes(findings);
+
+        expect(fix.codeReplacements[0]?.replacement).toBe('os.Getenv("AWS_ACCESS_KEY")');
+        // Go must NOT use process.env (kills array mutants)
+        expect(fix.codeReplacements[0]?.replacement).not.toContain('process.env');
+        // Should include Go import instruction
+        expect(fix.instructions).toContain('Go: import "os"');
+      });
+
+      it('should generate Environment.GetEnvironmentVariable for .cs files', async () => {
+        await writeTestFile(
+          path.join(tempDir, 'Program.cs'),
+          `string k = "AKIAIOSFODNN7EXAMPLE";`
+        );
+
+        const findings = await scanner.scan();
+        const fix = await scanner.generateFixes(findings);
+
+        expect(fix.codeReplacements[0]?.replacement).toBe('Environment.GetEnvironmentVariable("AWS_ACCESS_KEY")');
+        // C# must NOT use process.env
+        expect(fix.codeReplacements[0]?.replacement).not.toContain('process.env');
+        // Should include C# import instruction
+        expect(fix.instructions).toContain('C#: using System;');
+      });
+
+      it('should generate System.getenv for .java files', async () => {
+        await writeTestFile(
+          path.join(tempDir, 'App.java'),
+          `String k = "AKIAIOSFODNN7EXAMPLE";`
+        );
+
+        const findings = await scanner.scan();
+        const fix = await scanner.generateFixes(findings);
+
+        expect(fix.codeReplacements[0]?.replacement).toBe('System.getenv("AWS_ACCESS_KEY")');
+      });
+
+      it('should generate $_ENV for .php files', async () => {
+        await writeTestFile(
+          path.join(tempDir, 'config.php'),
+          `$k = "AKIAIOSFODNN7EXAMPLE";`
+        );
+
+        const findings = await scanner.scan();
+        const fix = await scanner.generateFixes(findings);
+
+        expect(fix.codeReplacements[0]?.replacement).toBe("$_ENV['AWS_ACCESS_KEY']");
+      });
+
+      it('should generate ENV for .rb files', async () => {
+        await writeTestFile(
+          path.join(tempDir, 'config.rb'),
+          `k = "AKIAIOSFODNN7EXAMPLE"`
+        );
+
+        const findings = await scanner.scan();
+        const fix = await scanner.generateFixes(findings);
+
+        expect(fix.codeReplacements[0]?.replacement).toBe("ENV['AWS_ACCESS_KEY']");
+      });
+
+      it('should generate std::env::var for .rs files', async () => {
+        await writeTestFile(
+          path.join(tempDir, 'main.rs'),
+          `let k = "AKIAIOSFODNN7EXAMPLE";`
+        );
+
+        const findings = await scanner.scan();
+        const fix = await scanner.generateFixes(findings);
+
+        expect(fix.codeReplacements[0]?.replacement).toBe('std::env::var("AWS_ACCESS_KEY").unwrap()');
+      });
+
+      it('should fallback to process.env for unknown extensions', async () => {
+        await writeTestFile(
+          path.join(tempDir, 'config.xyz'),
+          `const KEY = 'AKIAIOSFODNN7EXAMPLE';`
+        );
+
+        const findings = await scanner.scan();
+        const fix = await scanner.generateFixes(findings);
+
+        // Unknown extension should fallback to process.env
+        expect(fix.codeReplacements[0]?.replacement).toBe('process.env.AWS_ACCESS_KEY');
+      });
+    });
+
+    describe('error handling and edge cases', () => {
+      let tempDir: string;
+      let scanner: SecurityScanner;
+
+      beforeEach(async () => {
+        tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'scanner-test-'));
+        scanner = new SecurityScanner(tempDir);
+      });
+
+      afterEach(async () => {
+        try {
+          await fs.rm(tempDir, { recursive: true, force: true });
+        } catch {
+          // ignore
+        }
+      });
+
+      it('should handle empty findings array', async () => {
+        const result = await scanner.applyFixes([]);
+
+        expect(result.success).toBe(true);
+        expect(result.filesModified.length).toBe(0);
+        expect(result.filesBackedUp.length).toBe(0);
+      });
+
+      it('should group code replacements by file', async () => {
+        await writeTestFile(
+          path.join(tempDir, 'test.ts'),
+          `const KEY1 = 'AKIAIOSFODNN7EXAMPLE';\nconst KEY2 = 'sk-proj-test123456789012345678901234567890123456789012345678';`
+        );
+
+        const findings = await scanner.scan();
+        const fix = await scanner.generateFixes(findings);
+
+        // Should list both replacements under same file
+        const fileCount = (fix.instructions.match(/test\.ts:/g) || []).length;
+        expect(fileCount).toBe(1); // File name appears once
+        expect(fix.instructions).toContain('Line 1:'); // First replacement
+        expect(fix.instructions).toContain('Line 2:'); // Second replacement
+      });
+    });
+
+    describe('applyFixes() summary generation', () => {
+      let tempDir: string;
+      let scanner: SecurityScanner;
+
+      beforeEach(async () => {
+        tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'scanner-test-'));
+        scanner = new SecurityScanner(tempDir);
+      });
+
+      afterEach(async () => {
+        try {
+          await fs.rm(tempDir, { recursive: true, force: true });
+        } catch {
+          // ignore
+        }
+      });
+
+      it('should generate summary with files modified count', async () => {
+        await writeTestFile(
+          path.join(tempDir, 'test.ts'),
+          `const KEY = 'AKIAIOSFODNN7EXAMPLE';`
+        );
+
+        const findings = await scanner.scan();
+        const result = await scanner.applyFixes(findings);
+
+        // Line 767: parts.push(`Modified ${result.filesModified.length} file(s)`)
+        expect(result.summary).toContain('Modified 1 file(s)');
+        expect(result.filesModified.length).toBe(1);
+      });
+
+      it('should generate summary with backup count', async () => {
+        await writeTestFile(
+          path.join(tempDir, 'test.ts'),
+          `const KEY = 'AKIAIOSFODNN7EXAMPLE';`
+        );
+
+        const findings = await scanner.scan();
+        const result = await scanner.applyFixes(findings);
+
+        // Line 770: parts.push(`Created ${result.filesBackedUp.length} backup(s)`)
+        expect(result.summary).toContain('Created 1 backup(s)');
+        expect(result.filesBackedUp.length).toBe(1);
+      });
+
+      it('should generate summary with .env created message', async () => {
+        await writeTestFile(
+          path.join(tempDir, 'test.ts'),
+          `const KEY = 'AKIAIOSFODNN7EXAMPLE';`
+        );
+
+        const findings = await scanner.scan();
+        const result = await scanner.applyFixes(findings);
+
+        // Line 773: parts.push('Created/updated .env')
+        expect(result.envCreated).toBe(true);
+        expect(result.summary).toContain('Created/updated .env');
+      });
+
+      it('should generate summary with .gitignore updated message', async () => {
+        await writeTestFile(
+          path.join(tempDir, 'test.ts'),
+          `const KEY = 'AKIAIOSFODNN7EXAMPLE';`
+        );
+
+        const findings = await scanner.scan();
+        const result = await scanner.applyFixes(findings);
+
+        // Line 776: parts.push('Updated .gitignore')
+        expect(result.gitignoreUpdated).toBe(true);
+        expect(result.summary).toContain('Updated .gitignore');
+      });
+
+      it('should include backups list in summary when backups exist', async () => {
+        await writeTestFile(
+          path.join(tempDir, 'test.ts'),
+          `const KEY = 'AKIAIOSFODNN7EXAMPLE';`
+        );
+
+        const findings = await scanner.scan();
+        const result = await scanner.applyFixes(findings);
+
+        // Line 785: result.summary += `\n\nBackups created:\n  ${result.filesBackedUp.join('\n  ')}`
+        expect(result.filesBackedUp.length).toBeGreaterThan(0);
+        expect(result.summary).toContain('Backups created:');
+        expect(result.summary).toContain('test.ts.bak');
+      });
+
+      it('should include modified files list in summary', async () => {
+        await writeTestFile(
+          path.join(tempDir, 'test.ts'),
+          `const KEY = 'AKIAIOSFODNN7EXAMPLE';`
+        );
+
+        const findings = await scanner.scan();
+        const result = await scanner.applyFixes(findings);
+
+        // Line 789: result.summary += `\n\nFiles modified:\n  ${result.filesModified.join('\n  ')}`
+        expect(result.filesModified.length).toBeGreaterThan(0);
+        expect(result.summary).toContain('Files modified:');
+        expect(result.summary).toMatch(/test\.ts/);
+      });
+
+      it('should include Next steps in summary', async () => {
+        await writeTestFile(
+          path.join(tempDir, 'test.ts'),
+          `const KEY = 'AKIAIOSFODNN7EXAMPLE';`
+        );
+
+        const findings = await scanner.scan();
+        const result = await scanner.applyFixes(findings);
+
+        // Line 796: result.summary += `\n\nNext steps:\n  1. Review...`
+        expect(result.summary).toContain('Next steps:');
+        expect(result.summary).toContain('1. Review the changes');
+        expect(result.summary).toContain('2. Update .env with actual secret values');
+        expect(result.summary).toContain('3. Ensure required env imports');
+      });
+
+      it('should mark success=true when no errors', async () => {
+        await writeTestFile(
+          path.join(tempDir, 'test.ts'),
+          `const KEY = 'AKIAIOSFODNN7EXAMPLE';`
+        );
+
+        const findings = await scanner.scan();
+        const result = await scanner.applyFixes(findings);
+
+        // Line 761-763: result.success = errors.length === 0 || ...
+        expect(result.success).toBe(true);
+        expect(result.errors.length).toBe(0);
+      });
+
+      it('should handle multiple files in applyFixes', async () => {
+        await writeTestFile(
+          path.join(tempDir, 'file1.ts'),
+          `const KEY = 'AKIAIOSFODNN7EXAMPLE';`
+        );
+        await writeTestFile(
+          path.join(tempDir, 'file2.ts'),
+          `const KEY = 'sk-proj-test123456789012345678901234567890123456789012345678';`
+        );
+
+        const findings = await scanner.scan();
+        const result = await scanner.applyFixes(findings);
+
+        // Should modify both files
+        expect(result.filesModified.length).toBe(2);
+        expect(result.filesBackedUp.length).toBe(2);
+        expect(result.summary).toContain('Modified 2 file(s)');
+        expect(result.summary).toContain('Created 2 backup(s)');
+      });
+    });
+
+    describe('mutation killers for survived lines', () => {
+      let tempDir: string;
+      let scanner: SecurityScanner;
+
+      beforeEach(async () => {
+        tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'scanner-test-'));
+        scanner = new SecurityScanner(tempDir);
+      });
+
+      afterEach(async () => {
+        try {
+          await fs.rm(tempDir, { recursive: true, force: true });
+        } catch {
+          // ignore
+        }
+      });
+
+      it('should distinguish JS extensions from Python via array check', async () => {
+        // Lines 962, 1039: Kill array mutations by testing boundary
+        // Create BOTH JS and Python files
+        await writeTestFile(
+          path.join(tempDir, 'script.ts'),
+          `const TSK = 'AKIAIOSFODNN7EXAMPLE';`
+        );
+        await writeTestFile(
+          path.join(tempDir, 'script.py'),
+          `PYK = 'AKIAIOSFODNN7EXAMPLE'`
+        );
+
+        const findings = await scanner.scan();
+        const fix = await scanner.generateFixes(findings);
+
+        // Find replacements by file
+        const tsRepl = fix.codeReplacements.find(r => r.file.endsWith('.ts'));
+        const pyRepl = fix.codeReplacements.find(r => r.file.endsWith('.py'));
+
+        // TS must use process.env (array includes .ts)
+        expect(tsRepl?.replacement).toContain('process.env');
+        expect(tsRepl?.replacement).not.toContain('os.environ');
+
+        // Python must use os.environ (NOT in array)
+        expect(pyRepl?.replacement).toContain('os.environ');
+        expect(pyRepl?.replacement).not.toContain('process.env');
+      });
+
+      it('should distinguish all JS extensions from other languages', async () => {
+        // Line 962: Verify each JS extension is in array
+        // If mutant removes one, that extension would use wrong syntax
+        const testCases = [
+          { ext: '.ts', jsRepl: 'process.env', notRepl: 'os.environ' },
+          { ext: '.js', jsRepl: 'process.env', notRepl: 'os.environ' },
+          { ext: '.mjs', jsRepl: 'process.env', notRepl: 'os.environ' },
+        ];
+
+        for (const { ext, jsRepl, notRepl } of testCases) {
+          const d = await fs.mkdtemp(path.join(os.tmpdir(), 'test-'));
+          const sc = new SecurityScanner(d);
+
+          // Create JS file + Python file
+          await writeTestFile(path.join(d, `a${ext}`), `const K='AKIAIOSFODNN7EXAMPLE';`);
+          await writeTestFile(path.join(d, 'b.py'), `K='AKIAIOSFODNN7EXAMPLE'`);
+
+          const f = await sc.scan();
+          const fx = await sc.generateFixes(f);
+
+          // JS file MUST use correct syntax
+          const jsFile = fx.codeReplacements.find(r => r.file.endsWith(ext));
+          expect(jsFile?.replacement).toContain(jsRepl);
+          expect(jsFile?.replacement).not.toContain(notRepl);
+
+          // Python file must still use Python syntax
+          const pyFile = fx.codeReplacements.find(r => r.file.endsWith('.py'));
+          expect(pyFile?.replacement).toContain('os.environ');
+
+          await fs.rm(d, { recursive: true });
+        }
+      });
+
+      it('should detect non-JS files for imports', async () => {
+        // Line 1039
+        await writeTestFile(path.join(tempDir, 'x.py'), `K='AKIAIOSFODNN7EXAMPLE'`);
+        const ff = await scanner.scan();
+        const fx = await scanner.generateFixes(ff);
+        expect(fx.instructions).toContain('Python: import os');
+      });
+
+      it('should show filename in instructions', async () => {
+        // Line 1024
+        await writeTestFile(path.join(tempDir, 'custom.ts'), `const K='AKIAIOSFODNN7EXAMPLE';`);
+        const ff = await scanner.scan();
+        const fx = await scanner.generateFixes(ff);
+        expect(fx.instructions).toContain('custom.ts');
+      });
+
+      it('should handle line replacement boundaries', async () => {
+        // Line 733
+        await writeTestFile(path.join(tempDir, 'f.ts'), `const K='AKIAIOSFODNN7EXAMPLE';`);
+        const ff = await scanner.scan();
+        const r = await scanner.applyFixes(ff);
+        expect(r.success).toBe(true);
+        const c = await fs.readFile(path.join(tempDir, 'f.ts'), 'utf-8');
+        expect(c).toContain('process.env');
       });
     });
   });
