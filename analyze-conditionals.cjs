@@ -23,15 +23,36 @@ conditionals.forEach(m => {
 });
 
 // Show sorted by line
+console.log('=== All Lines ===');
 Object.keys(byLine)
   .sort((a, b) => parseInt(a) - parseInt(b))
   .forEach(line => {
     const mutants = byLine[line];
-    console.log(`Line ${line}: ${mutants.map(m => m.replacement).join(', ')} (${mutants.length} mutants)`);
+    console.log(`Line ${line}: ${mutants.map(m => m.replacement).join(', ')}`);
   });
 
-console.log('\n=== Top 10 Most Frequent Lines ===');
-const sorted = Object.entries(byLine).sort((a, b) => b[1].length - a[1].length);
-sorted.slice(0, 10).forEach(([line, mutants]) => {
-  console.log(`Line ${line}: ${mutants.length} mutants`);
+console.log('\n=== Defensive vs Testable ===');
+const defensive = [];
+const testable = [];
+
+Object.entries(byLine).forEach(([line, mutants]) => {
+  const lineNum = parseInt(line);
+  // Defensive checks (hard to kill)
+  if (lineNum >= 622 && lineNum <= 651) {
+    defensive.push({ line: lineNum, count: mutants.length, type: 'summary generation' });
+  } else if (lineNum === 592 || lineNum === 594) {
+    defensive.push({ line: lineNum, count: mutants.length, type: 'array bounds' });
+  } else {
+    testable.push({ line: lineNum, count: mutants.length, mutants });
+  }
+});
+
+console.log(`\nDefensive (hard to kill): ${defensive.length} lines`);
+defensive.forEach(d => {
+  console.log(`  Line ${d.line}: ${d.count} mutants (${d.type})`);
+});
+
+console.log(`\nTestable: ${testable.length} lines`);
+testable.forEach(t => {
+  console.log(`  Line ${t.line}: ${t.count} mutants - ${t.mutants.map(m => m.replacement).join(', ')}`);
 });

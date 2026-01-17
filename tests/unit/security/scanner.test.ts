@@ -1637,6 +1637,66 @@ const KEY3 = process.env.AWS_ACCESS_KEY;`);
         }
       });
     });
+
+    describe('Phase 7: Additional ConditionalExpression targets', () => {
+      it('should handle invalid line numbers (line 778)', async () => {
+        // Test line 778: if (!line) return null
+        // Create finding with line number beyond file length
+        await writeTestFile(
+          path.join(tempDir, 'test.ts'),
+          `const KEY = 'AKIAIOSFODNN7EXAMPLE';` // Only 1 line
+        );
+
+        const findings = await scanner.scan();
+        // Manually create finding with invalid line number
+        const invalidFinding: SecurityFinding = {
+          ...findings[0]!,
+          line: 999, // Way beyond file length
+        };
+
+        const result = await scanner.applyFixes([invalidFinding]);
+
+        // Line 778 returns null when line doesn't exist
+        // This means the secret isn't found, so no replacement happens
+        // Result should still succeed (no errors, just no changes)
+        expect(result.filesModified.length).toBe(0);
+      });
+
+      it('should match patterns by name (line 782)', async () => {
+        // Test line 782: if (pattern.name === finding.pattern)
+        await writeTestFile(
+          path.join(tempDir, 'test.ts'),
+          `const KEY1 = 'AKIAIOSFODNN7EXAMPLE';\nconst KEY2 = 'ghp_1234567890123456789012345678901234';`
+        );
+
+        const findings = await scanner.scan();
+
+        // Should find both AWS and GitHub patterns
+        expect(findings.length).toBeGreaterThan(0);
+
+        const result = await scanner.applyFixes(findings);
+
+        // Both should be processed correctly
+        expect(result.success).toBe(true);
+        expect(result.filesModified.length).toBeGreaterThan(0);
+      });
+
+      it('should handle whitelist check edge cases (line 358)', async () => {
+        // Test line 358: if (!this.isWhitelisted())
+        await writeTestFile(
+          path.join(tempDir, 'test.ts'),
+          `const EXAMPLE = 'AKIAEXAMPLEKEY123456'; // Known example key`
+        );
+
+        const findings = await scanner.scan();
+
+        // Should detect the secret (even if it looks like example)
+        expect(findings.length).toBeGreaterThan(0);
+
+        const result = await scanner.applyFixes(findings);
+        expect(result.success).toBe(true);
+      });
+    });
     });
   });
 
