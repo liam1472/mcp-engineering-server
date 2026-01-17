@@ -45,6 +45,7 @@ export interface SecurityFinding {
 export class SafetyPatternMatcher {
   private profilePatterns: Map<string, SafetyPattern[]> = new Map();
   private customPatterns: SafetyPattern[] = [];
+  private whitelist: Set<string> = new Set();
 
   /**
    * Load patterns for a specific profile
@@ -162,6 +163,11 @@ export class SafetyPatternMatcher {
         for (const match of matches) {
           const matchStr = match[0];
 
+          // Skip if whitelisted
+          if (this.isWhitelisted(filePath, matchStr)) {
+            continue;
+          }
+
           // Map safety severity to SecurityFinding severity
           const severity: SecurityFinding['severity'] =
             pattern.severity === 'critical'
@@ -192,8 +198,16 @@ export class SafetyPatternMatcher {
    * @param match - The matched string
    */
   isWhitelisted(filePath: string, match: string): boolean {
-    // TODO: Implementation will be extracted from scanner.ts
-    return false;
+    return this.whitelist.has(`${filePath}:${match}`);
+  }
+
+  /**
+   * Add a file:match combination to the whitelist
+   * @param filePath - Path to file
+   * @param match - The matched string to whitelist
+   */
+  addToWhitelist(filePath: string, match: string): void {
+    this.whitelist.add(`${filePath}:${match}`);
   }
 
   /**
@@ -209,5 +223,6 @@ export class SafetyPatternMatcher {
   clearCache(): void {
     this.profilePatterns.clear();
     this.customPatterns = [];
+    this.whitelist.clear();
   }
 }

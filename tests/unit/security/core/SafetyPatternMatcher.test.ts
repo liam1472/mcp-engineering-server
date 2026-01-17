@@ -524,5 +524,105 @@ patterns:
       expect(findings[1].line).toBe(2);
       expect(findings[2].line).toBe(3);
     });
+
+    it('should skip whitelisted matches', () => {
+      const patterns = [
+        {
+          name: 'Test Pattern',
+          type: 'safety' as const,
+          severity: 'warning' as const,
+          pattern: /\bmalloc\s*\(/g,
+          message: 'Malloc detected',
+          suggestion: 'Use static buffers',
+          rationale: undefined,
+          tags: undefined,
+        },
+      ];
+
+      const content = 'malloc(100);\nmalloc(200);';
+
+      // Whitelist the first occurrence
+      matcher.addToWhitelist('test.c', 'malloc(');
+
+      const findings = matcher.matchPatterns(content, patterns, 'test.c');
+
+      // Should find 0 matches because both lines have the same match string
+      expect(findings.length).toBe(0);
+    });
+
+    it('should only whitelist specific file:match combinations', () => {
+      const patterns = [
+        {
+          name: 'Test Pattern',
+          type: 'safety' as const,
+          severity: 'warning' as const,
+          pattern: /\bmalloc\s*\(/g,
+          message: 'Malloc detected',
+          suggestion: 'Use static buffers',
+          rationale: undefined,
+          tags: undefined,
+        },
+      ];
+
+      // Whitelist in file1.c
+      matcher.addToWhitelist('file1.c', 'malloc(');
+
+      const findings1 = matcher.matchPatterns('malloc(100);', patterns, 'file1.c');
+      const findings2 = matcher.matchPatterns('malloc(100);', patterns, 'file2.c');
+
+      // Should be whitelisted in file1.c but not file2.c
+      expect(findings1.length).toBe(0);
+      expect(findings2.length).toBe(1);
+    });
+  });
+
+  describe('isWhitelisted', () => {
+    it('should return false for non-whitelisted items', () => {
+      expect(matcher.isWhitelisted('test.c', 'malloc(')).toBe(false);
+    });
+
+    it('should return true for whitelisted items', () => {
+      matcher.addToWhitelist('test.c', 'malloc(');
+      expect(matcher.isWhitelisted('test.c', 'malloc(')).toBe(true);
+    });
+
+    it('should be case-sensitive for file paths', () => {
+      matcher.addToWhitelist('Test.c', 'malloc(');
+
+      expect(matcher.isWhitelisted('Test.c', 'malloc(')).toBe(true);
+      expect(matcher.isWhitelisted('test.c', 'malloc(')).toBe(false);
+    });
+
+    it('should be case-sensitive for matches', () => {
+      matcher.addToWhitelist('test.c', 'Malloc(');
+
+      expect(matcher.isWhitelisted('test.c', 'Malloc(')).toBe(true);
+      expect(matcher.isWhitelisted('test.c', 'malloc(')).toBe(false);
+    });
+  });
+
+  describe('addToWhitelist', () => {
+    it('should add file:match combination to whitelist', () => {
+      matcher.addToWhitelist('file.c', 'match');
+      expect(matcher.isWhitelisted('file.c', 'match')).toBe(true);
+    });
+
+    it('should allow multiple whitelist entries', () => {
+      matcher.addToWhitelist('file1.c', 'match1');
+      matcher.addToWhitelist('file2.c', 'match2');
+      matcher.addToWhitelist('file1.c', 'match3');
+
+      expect(matcher.isWhitelisted('file1.c', 'match1')).toBe(true);
+      expect(matcher.isWhitelisted('file2.c', 'match2')).toBe(true);
+      expect(matcher.isWhitelisted('file1.c', 'match3')).toBe(true);
+    });
+
+    it('should not affect other file:match combinations', () => {
+      matcher.addToWhitelist('file.c', 'match1');
+
+      expect(matcher.isWhitelisted('file.c', 'match1')).toBe(true);
+      expect(matcher.isWhitelisted('file.c', 'match2')).toBe(false);
+      expect(matcher.isWhitelisted('other.c', 'match1')).toBe(false);
+    });
   });
 });
