@@ -474,11 +474,12 @@ describe('Phase 3: File Creation Flag Tests', () => {
 
 ## ✅ Implementation Checklist
 
-### Phase 1: Architectural Refactor
-- [ ] Step 1.1: Add `profilesLoaded` to SafetyPatternMatcher
-- [ ] Step 1.2: Remove `profileLoaded` from SecurityScanner
-- [ ] Step 1.3: Update `autoDetectProfile()` logic
-- [ ] Verify all existing tests pass
+### Phase 1: Architectural Refactor ✅ COMPLETE
+- [x] Step 1.1: Add `profilesLoaded` to SafetyPatternMatcher
+- [x] Step 1.2: Remove `profileLoaded` from SecurityScanner
+- [x] Step 1.3: Update `autoDetectProfile()` logic
+- [x] Verify all existing tests pass (587 tests passing)
+- [x] **Result: 66.79% → 67.52% (+0.73%, killed 2 BooleanLiteral mutants)**
 
 ### Phase 2: SafetyPatternMatcher Tests
 - [ ] Add `isProfileLoaded()` tests
