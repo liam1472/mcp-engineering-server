@@ -41,8 +41,9 @@ Object.keys(byLine)
     console.log(`Line ${line}: ${mutants.length} mutants (${types})`);
   });
 
-console.log('\n=== Sample Details (first 20) ===');
-noCoverage.slice(0, 20).forEach((m, i) => {
+console.log('\n=== All Details ===');
+noCoverage.forEach((m, i) => {
   console.log(`${i + 1}. Line ${m.location.start.line}: ${m.mutatorName}`);
+  console.log(`   ID: ${m.id}`);
   console.log(`   Replacement: ${m.replacement}`);
 });

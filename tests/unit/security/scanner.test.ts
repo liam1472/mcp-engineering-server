@@ -1411,6 +1411,29 @@ const KEY3 = process.env.AWS_ACCESS_KEY;`);
       });
     });
 
+    describe('placeholder generation (lines 762-767)', () => {
+      it('should generate placeholders for different pattern types', async () => {
+        // Test files with different types of secrets
+        await writeTestFile(
+          path.join(tempDir, 'keys.ts'),
+          `const API_KEY = 'AKIAIOSFODNN7EXAMPLE';\nconst TOKEN = 'ghp_abc123def456';\nconst PASS = 'password123';`
+        );
+
+        const findings = await scanner.scan();
+        const result = await scanner.applyFixes(findings);
+
+        // generatePlaceholder is called for each finding type
+        // Lines 762-767: key, token, password, uri/url, secret checks
+        expect(result.success).toBe(true);
+        expect(result.filesModified.length).toBeGreaterThan(0);
+
+        // Verify the file has placeholders
+        const content = await fs.readFile(path.join(tempDir, 'keys.ts'), 'utf-8');
+        // Should contain env var references, not original secrets
+        expect(content).not.toContain('AKIAIOSFODNN7EXAMPLE');
+      });
+    });
+
     describe('success calculation (line 622)', () => {
       it('should mark as success when some files modified despite blocked files', async () => {
         // Create one regular file and findings for both regular and protected file
