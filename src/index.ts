@@ -283,17 +283,50 @@ server.setRequestHandler(CallToolRequestSchema, async request => {
           (args as { name?: string } | undefined)?.name ?? path.basename(process.cwd());
 
         // Initialize config and directory structure
-        await configManager.initialize(projectName, projectType);
+        const { profile, architecturalReport } = await configManager.initialize(
+          projectName,
+          projectType
+        );
+
+        // Build output message
+        let resultText =
+          `✓ Initialized "${projectName}"\n` +
+          `  Type: ${projectType}\n` +
+          `  Profile: ${profile}\n` +
+          `  Config: .engineering/config.yaml\n`;
+
+        // Show template info
+        if (profile !== 'unknown') {
+          resultText += `\n📋 Templates copied:\n`;
+          resultText += `  • manifesto.md - Coding standards for ${profile}\n`;
+          resultText += `  • blueprint.md - Deployment/ops standards for ${profile}\n`;
+        }
+
+        // Show architectural gaps
+        if (architecturalReport.gaps.length > 0) {
+          resultText += `\n⚠️ ARCHITECTURAL GAPS DETECTED:\n`;
+          for (const gap of architecturalReport.gaps) {
+            const icon = gap.severity === 'critical' ? '🔴' : gap.severity === 'warning' ? '🟡' : '🔵';
+            resultText += `  ${icon} ${gap.name}: ${gap.description}\n`;
+            resultText += `     → ${gap.suggestion}\n`;
+          }
+        }
+
+        // Show recommendations
+        if (architecturalReport.recommendations.length > 0) {
+          resultText += `\n💡 Recommendations:\n`;
+          for (const rec of architecturalReport.recommendations) {
+            resultText += `  • ${rec}\n`;
+          }
+        }
+
+        resultText += `\nNext: Run eng_scan to build code indexes, eng_security to scan for secrets.`;
 
         return {
           content: [
             {
               type: 'text',
-              text:
-                `✓ Initialized "${projectName}"\n` +
-                `  Type: ${projectType}\n` +
-                `  Config: .engineering/config.yaml\n\n` +
-                `Next: Run eng_scan to build code indexes, eng_security to scan for secrets.`,
+              text: resultText,
             },
           ],
         };
@@ -495,6 +528,16 @@ server.setRequestHandler(CallToolRequestSchema, async request => {
         }
 
         resultText += `\nTrack progress with eng_validate, complete with eng_done.`;
+
+        // Load and inject manifesto if available
+        const manifesto = await featureManager.getManifesto();
+        if (manifesto) {
+          resultText += `\n\n<SYSTEM_ENFORCEMENT>\n`;
+          resultText += `PROJECT MANIFESTO ACTIVE.\n`;
+          resultText += `YOU MUST ADHERE TO THE FOLLOWING RULES:\n\n`;
+          resultText += manifesto;
+          resultText += `\n</SYSTEM_ENFORCEMENT>`;
+        }
 
         return {
           content: [{ type: 'text', text: resultText }],
@@ -1147,11 +1190,12 @@ server.setRequestHandler(CallToolRequestSchema, async request => {
     case 'eng_refactor': {
       try {
         const refactorArgs = args as
-          | { fix?: boolean; dryRun?: boolean; force?: boolean }
+          | { fix?: boolean; dryRun?: boolean; force?: boolean; learn?: boolean }
           | undefined;
         const shouldFix = refactorArgs?.fix === true;
         const dryRun = refactorArgs?.dryRun === true;
         const force = refactorArgs?.force === true;
+        const shouldLearn = refactorArgs?.learn === true;
 
         // Always generate fixes if fix flag is set (for dry-run or apply)
         const report = await refactorAnalyzer.analyze({ generateFixes: shouldFix });
@@ -1182,6 +1226,20 @@ server.setRequestHandler(CallToolRequestSchema, async request => {
           output += '\n\n' + result.summary;
         } else if (shouldFix && dryRun) {
           output += '\n\nRun with --fix (without --dry-run) to apply these changes.';
+        }
+
+        // Handle learn mode - extract rules and append to manifesto
+        if (shouldLearn && report.suggestions.length > 0) {
+          const learnedRules = await refactorAnalyzer.learnFromRefactor(report);
+          if (learnedRules.length > 0) {
+            output += `\n\n📚 LEARNED RULES (${learnedRules.length}):\n`;
+            for (const rule of learnedRules) {
+              output += `  • [${rule.type}] ${rule.rule}\n`;
+            }
+            output += `\n✅ Rules appended to .engineering/manifesto.md`;
+          } else {
+            output += `\n\n📚 No significant patterns to learn from this analysis.`;
+          }
         }
 
         return {

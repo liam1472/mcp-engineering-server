@@ -1,0 +1,207 @@
+# .NET Application Safety Patterns
+# Profile: dotnet (ASP.NET Core, WPF, MAUI, Blazor, Console)
+# These patterns detect anti-patterns and security issues
+
+profile: dotnet
+description: "Safety patterns for .NET applications - async, DI, security focused"
+version: "1.0.0"
+
+patterns:
+  # ============================================
+  # ASYNC ANTI-PATTERNS (CRITICAL)
+  # ============================================
+
+  - name: "Async Void Method"
+    regex: "async\\s+void\\s+\\w+\\s*\\("
+    severity: critical
+    type: safety
+    message: "async void method detected. Exceptions will be unhandled."
+    suggestion: "Use 'async Task' instead. Only event handlers should be async void."
+    rationale: "async void cannot be awaited and exceptions crash the app."
+    tags: ["async", "exception-handling", "crash"]
+
+  - name: "Task.Result Blocking"
+    regex: "\\.Result\\b"
+    severity: warning
+    type: safety
+    message: ".Result blocks synchronously. Risk of deadlock."
+    suggestion: "Use 'await' instead of .Result."
+    tags: ["async", "deadlock", "blocking"]
+
+  - name: "Task.Wait Blocking"
+    regex: "\\.Wait\\s*\\("
+    severity: warning
+    type: safety
+    message: ".Wait() blocks synchronously. Risk of deadlock."
+    suggestion: "Use 'await' instead of .Wait()."
+    tags: ["async", "deadlock", "blocking"]
+
+  - name: "Task.GetAwaiter().GetResult()"
+    regex: "\\.GetAwaiter\\s*\\(\\s*\\)\\s*\\.GetResult\\s*\\("
+    severity: warning
+    type: safety
+    message: "GetAwaiter().GetResult() blocks synchronously."
+    suggestion: "Use 'await' for async operations."
+    tags: ["async", "deadlock", "blocking"]
+
+  - name: "Thread.Sleep in Async"
+    regex: "Thread\\.Sleep\\s*\\("
+    severity: warning
+    type: safety
+    message: "Thread.Sleep blocks the thread."
+    suggestion: "Use 'await Task.Delay()' in async code."
+    tags: ["async", "blocking", "thread"]
+
+  # ============================================
+  # DEPENDENCY INJECTION (HIGH)
+  # ============================================
+
+  - name: "Service Locator Pattern"
+    regex: "ServiceLocator\\.(Get|Resolve|GetService)"
+    severity: warning
+    type: safety
+    message: "Service Locator anti-pattern detected."
+    suggestion: "Use constructor injection instead of service locator."
+    rationale: "Service locator hides dependencies and makes testing difficult."
+    tags: ["di", "anti-pattern", "testability"]
+
+  - name: "IServiceProvider in Business Logic"
+    regex: "IServiceProvider\\s+\\w+"
+    severity: info
+    type: safety
+    message: "IServiceProvider usage detected. May indicate service locator pattern."
+    suggestion: "IServiceProvider should only be used in composition root."
+    tags: ["di", "anti-pattern"]
+
+  - name: "New Instance Instead of DI"
+    regex: "new\\s+(\\w+Repository|\\w+Service|\\w+Manager)\\s*\\("
+    severity: info
+    type: safety
+    message: "Direct instantiation of service/repository detected."
+    suggestion: "Register in DI container and inject via constructor."
+    tags: ["di", "testability"]
+
+  # ============================================
+  # SQL INJECTION (CRITICAL)
+  # ============================================
+
+  - name: "SQL String Concatenation"
+    regex: "(ExecuteSqlRaw|FromSqlRaw)\\s*\\(\\s*\\$\"|\\+\\s*\\w+"
+    severity: critical
+    type: safety
+    message: "SQL string interpolation/concatenation detected. SQL injection risk."
+    suggestion: "Use parameterized queries: ExecuteSqlInterpolated or FromSqlInterpolated."
+    rationale: "OWASP A03:2021 - Injection"
+    tags: ["sql-injection", "ef-core", "security"]
+
+  - name: "Raw SQL Query"
+    regex: "\\.(ExecuteSqlRaw|FromSqlRaw)\\s*\\("
+    severity: info
+    type: safety
+    message: "Raw SQL query detected. Verify parameterization."
+    suggestion: "Ensure all user input is parameterized."
+    tags: ["sql", "security"]
+
+  - name: "String Concat in SqlCommand"
+    regex: "SqlCommand\\s*\\(\\s*[\"'].*\\+|\\$\""
+    severity: critical
+    type: safety
+    message: "SQL injection via string concatenation in SqlCommand."
+    suggestion: "Use SqlParameter for all user inputs."
+    tags: ["sql-injection", "ado.net", "security"]
+
+  # ============================================
+  # EXCEPTION HANDLING (HIGH)
+  # ============================================
+
+  - name: "Catch All Exception"
+    regex: "catch\\s*\\(\\s*Exception\\s+\\w*\\s*\\)"
+    severity: info
+    type: safety
+    message: "Catching generic Exception. May hide bugs."
+    suggestion: "Catch specific exception types when possible."
+    tags: ["exception-handling", "debugging"]
+
+  - name: "Throw Ex (Stack Trace Loss)"
+    regex: "throw\\s+\\w+\\s*;"
+    severity: warning
+    type: safety
+    message: "'throw ex;' loses original stack trace."
+    suggestion: "Use 'throw;' to preserve stack trace."
+    tags: ["exception-handling", "debugging"]
+
+  - name: "Empty Catch Block"
+    regex: "catch\\s*\\([^)]*\\)\\s*\\{\\s*\\}"
+    severity: warning
+    type: safety
+    message: "Empty catch block swallows exceptions silently."
+    suggestion: "Log the exception or re-throw."
+    tags: ["exception-handling", "debugging"]
+
+  # ============================================
+  # HARDCODED SECRETS (CRITICAL)
+  # ============================================
+
+  - name: "Hardcoded Connection String"
+    regex: "(connectionString|ConnectionString)\\s*=\\s*\"[^\"]*;(Password|pwd)="
+    severity: critical
+    type: secret
+    message: "Hardcoded connection string with password detected."
+    suggestion: "Use User Secrets (dev) or Azure Key Vault (prod)."
+    tags: ["secrets", "connection-string", "security"]
+
+  - name: "Hardcoded Password"
+    regex: "(password|Password)\\s*=\\s*\"[^\"]{4,}\""
+    severity: critical
+    type: secret
+    message: "Hardcoded password detected."
+    suggestion: "Use environment variables or secret manager."
+    tags: ["secrets", "password", "security"]
+
+  - name: "Hardcoded API Key"
+    regex: "(apiKey|ApiKey|API_KEY)\\s*=\\s*\"[^\"]{10,}\""
+    severity: critical
+    type: secret
+    message: "Hardcoded API key detected."
+    suggestion: "Use configuration with secret protection."
+    tags: ["secrets", "api-key", "security"]
+
+  # ============================================
+  # LOGGING ANTI-PATTERNS (MEDIUM)
+  # ============================================
+
+  - name: "String Interpolation in Log"
+    regex: "_logger\\.(Log|Information|Warning|Error)\\s*\\(\\s*\\$\""
+    severity: info
+    type: safety
+    message: "String interpolation in log message. Less efficient and secure."
+    suggestion: "Use structured logging: _logger.LogInformation(\"Message {Param}\", value)"
+    tags: ["logging", "performance", "structured-logging"]
+
+  - name: "Console.WriteLine in Production Code"
+    regex: "Console\\.Write(Line)?\\s*\\("
+    severity: info
+    type: safety
+    message: "Console.WriteLine detected. Use proper logging in production."
+    suggestion: "Use ILogger<T> or Serilog for structured logging."
+    tags: ["logging", "debug"]
+
+  # ============================================
+  # CONFIGURATION (MEDIUM)
+  # ============================================
+
+  - name: "Magic String Configuration"
+    regex: "Configuration\\s*\\[\\s*\"[^\"]+\"\\s*\\]"
+    severity: info
+    type: safety
+    message: "Magic string configuration access detected."
+    suggestion: "Use IOptions<T> pattern for strongly-typed configuration."
+    tags: ["configuration", "type-safety"]
+
+  - name: "GetSection Without Bind"
+    regex: "GetSection\\s*\\(\\s*\"[^\"]+\"\\s*\\)(?!\\.Bind|\\.Get)"
+    severity: info
+    type: safety
+    message: "Configuration section without type binding."
+    suggestion: "Use GetSection().Bind(options) or Configure<T>()."
+    tags: ["configuration", "type-safety"]

@@ -178,4 +178,34 @@ export class FeatureManager {
   getKnowledgeExtractor(): KnowledgeExtractor {
     return this.knowledgeExtractor;
   }
+
+  /**
+   * Read manifesto content from .engineering/manifesto.md
+   * Returns null if no manifesto exists
+   */
+  async getManifesto(): Promise<string | null> {
+    const manifestoPath = path.join(this.workingDir, '.engineering', 'manifesto.md');
+
+    try {
+      const content = await fs.readFile(manifestoPath, 'utf-8');
+      return content;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Read blueprint content from .engineering/blueprint.md
+   * Returns null if no blueprint exists
+   */
+  async getBlueprint(): Promise<string | null> {
+    const blueprintPath = path.join(this.workingDir, '.engineering', 'blueprint.md');
+
+    try {
+      const content = await fs.readFile(blueprintPath, 'utf-8');
+      return content;
+    } catch {
+      return null;
+    }
+  }
 }

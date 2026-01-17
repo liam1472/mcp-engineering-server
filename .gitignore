@@ -51,6 +51,7 @@ CLAUDE.md
 MCP_SERVER_IMPLEMENTATION_GUIDE.md
 MASTER-PLAN.md
 ROADMAP.md
+UPGRADE.md
 
 # Generated engineering data
 .engineering/
@@ -60,6 +61,12 @@ tmp/
 temp/
 *.tmp
 *.temp
+mutation-output.txt
+.github-issue-draft.md
+
+# Mutation testing reports
+reports/
+.stryker-tmp/
 
 # Package manager locks (keep one, remove others if not used)
 # Uncomment the ones you don't use:

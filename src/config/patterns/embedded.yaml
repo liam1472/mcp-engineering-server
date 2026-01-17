@@ -1,0 +1,130 @@
+# Embedded Systems Safety Patterns
+# Profile: embedded (STM32, ESP32, Arduino, Zephyr, Linux SoC)
+# These patterns detect unsafe coding practices in embedded firmware
+
+profile: embedded
+description: "Safety patterns for embedded systems - catches memory, timing, and ISR violations"
+version: "1.0.0"
+
+patterns:
+  # ============================================
+  # MEMORY MANAGEMENT (CRITICAL)
+  # ============================================
+
+  - name: "Dynamic Memory Allocation"
+    regex: "\\b(malloc|calloc|realloc|free)\\s*\\("
+    severity: critical
+    type: safety
+    message: "Dynamic memory allocation detected. Forbidden in production firmware."
+    suggestion: "Use static buffers, fixed-size arrays, or memory pools instead."
+    rationale: "Causes fragmentation, non-deterministic timing, and hidden failure modes."
+    tags: ["memory", "misra", "safety-critical"]
+
+  - name: "C++ Dynamic Memory (new/delete)"
+    regex: "\\b(new|delete)\\s*[\\[\\(]?"
+    severity: critical
+    type: safety
+    message: "C++ dynamic allocation detected. Forbidden in production firmware."
+    suggestion: "Use placement new with static buffers or avoid dynamic allocation entirely."
+    tags: ["memory", "cpp", "safety-critical"]
+
+  # ============================================
+  # TIMING & BLOCKING (HIGH)
+  # ============================================
+
+  - name: "Blocking Delay (Long)"
+    regex: "\\bdelay\\s*\\(\\s*[0-9]{3,}\\s*\\)"
+    severity: warning
+    type: safety
+    message: "Blocking delay > 100ms detected. May block watchdog and miss events."
+    suggestion: "Use millis()-based timing, hardware timers, or RTOS delays."
+    tags: ["timing", "blocking", "watchdog"]
+
+  - name: "Blocking Delay (Any)"
+    regex: "\\bdelay\\s*\\("
+    severity: info
+    type: safety
+    message: "Blocking delay detected. Review if necessary."
+    suggestion: "Consider non-blocking alternatives for production code."
+    tags: ["timing", "blocking"]
+
+  - name: "Infinite Loop Without Yield"
+    regex: "while\\s*\\(\\s*(1|true)\\s*\\)\\s*\\{"
+    severity: warning
+    type: safety
+    message: "Infinite loop detected. Ensure watchdog feed and event handling."
+    suggestion: "Add timeout, yield point, or watchdog feed in loop body."
+    tags: ["timing", "loop", "watchdog"]
+
+  - name: "Thread.Sleep / vTaskDelay (Long)"
+    regex: "\\b(vTaskDelay|osDelay|Thread\\.Sleep)\\s*\\(\\s*[0-9]{4,}\\s*\\)"
+    severity: warning
+    type: safety
+    message: "Long RTOS delay detected (>1s). May affect system responsiveness."
+    suggestion: "Break into smaller delays or use event-based waiting."
+    tags: ["timing", "rtos"]
+
+  # ============================================
+  # ISR / INTERRUPT SAFETY (CRITICAL)
+  # ============================================
+
+  - name: "Printf in ISR Context"
+    regex: "\\b(printf|sprintf|snprintf|Serial\\.print)\\s*\\("
+    severity: warning
+    type: safety
+    message: "Printf-style function detected. Forbidden in ISR context."
+    suggestion: "Use flag-based communication; process in main loop."
+    tags: ["isr", "blocking", "uart"]
+    context_hint: "Check if this is inside an ISR or interrupt handler"
+
+  - name: "Floating Point Operations"
+    regex: "\\b(float|double)\\s+\\w+\\s*="
+    severity: info
+    type: safety
+    message: "Floating point variable detected. Avoid in ISR context."
+    suggestion: "Use fixed-point arithmetic or integer scaling in time-critical code."
+    tags: ["isr", "performance", "fpu"]
+
+  # ============================================
+  # GLOBAL STATE / VOLATILE (HIGH)
+  # ============================================
+
+  - name: "Global Without Volatile (ISR Hint)"
+    regex: "^(?!.*volatile).*\\b(static|extern)?\\s*(uint8_t|uint16_t|uint32_t|int|bool)\\s+\\w*(flag|ready|count|buffer)\\w*\\s*="
+    severity: info
+    type: safety
+    message: "Global variable with ISR-related name but no volatile keyword."
+    suggestion: "Add 'volatile' if shared between ISR and main context."
+    tags: ["volatile", "isr", "concurrency"]
+
+  # ============================================
+  # ERROR HANDLING (MEDIUM)
+  # ============================================
+
+  - name: "Unchecked Return Value"
+    regex: "\\b(HAL_\\w+|i2c_\\w+|spi_\\w+)\\s*\\([^;]+\\)\\s*;"
+    severity: info
+    type: safety
+    message: "Peripheral function return value may be unchecked."
+    suggestion: "Always check return values for error handling."
+    tags: ["error-handling", "hal", "peripheral"]
+
+  # ============================================
+  # LINUX SOC SPECIFIC
+  # ============================================
+
+  - name: "Hardcoded Device Path"
+    regex: "\"/dev/(tty|i2c|spi|gpio)[A-Za-z0-9]*\""
+    severity: info
+    type: safety
+    message: "Hardcoded device path detected."
+    suggestion: "Use configuration file or environment variable for device paths."
+    tags: ["linux", "config", "portability"]
+
+  - name: "Root Privilege Check Missing"
+    regex: "\\b(open|ioctl)\\s*\\(\\s*\"/dev/"
+    severity: info
+    type: safety
+    message: "Direct device access detected. May require root privileges."
+    suggestion: "Add privilege check or use udev rules for permissions."
+    tags: ["linux", "security", "permissions"]

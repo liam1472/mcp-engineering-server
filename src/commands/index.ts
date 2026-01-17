@@ -354,6 +354,12 @@ export function registerCommands(): Tool[] {
               'Force apply changes even when >5 files would be modified (safety override)',
             default: false,
           },
+          learn: {
+            type: 'boolean',
+            description:
+              'Learn from refactoring: extract anti-patterns and append as rules to manifesto.md',
+            default: false,
+          },
         },
       },
     },

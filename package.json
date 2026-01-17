@@ -33,9 +33,12 @@
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
     "test:unit": "vitest run tests/unit",
+    "test:specs": "vitest run tests/specs",
     "test:integration": "vitest run tests/integration",
     "test:e2e": "vitest run tests/e2e",
-    "clean": "rimraf dist coverage",
+    "test:mutation": "stryker run",
+    "dev:strict": "vitest --ui --coverage",
+    "clean": "rimraf dist coverage .stryker-tmp",
     "prepare": "npm run build"
   },
   "keywords": [
@@ -59,10 +62,13 @@
     "zod": "^3.22.4"
   },
   "devDependencies": {
+    "@stryker-mutator/core": "^8.2.6",
+    "@stryker-mutator/vitest-runner": "^8.2.6",
     "@types/node": "^20.10.0",
     "@typescript-eslint/eslint-plugin": "^6.13.0",
     "@typescript-eslint/parser": "^6.13.0",
     "@vitest/coverage-v8": "^1.6.0",
+    "@vitest/ui": "^1.6.0",
     "eslint": "^8.55.0",
     "eslint-config-prettier": "^9.1.0",
     "eslint-plugin-prettier": "^5.0.1",

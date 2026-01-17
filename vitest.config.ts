@@ -2,8 +2,8 @@ import { defineConfig } from 'vitest/config';
 
 export default defineConfig({
   test: {
-    // Test files pattern
-    include: ['tests/**/*.test.ts'],
+    // Test files pattern (includes both .test.ts and .spec.ts for golden tests)
+    include: ['tests/**/*.test.ts', 'tests/**/*.spec.ts'],
 
     // Global test setup
     setupFiles: ['tests/setup.ts'],

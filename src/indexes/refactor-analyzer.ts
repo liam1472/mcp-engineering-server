@@ -53,6 +53,13 @@ export interface RefactorReport {
   summary: string;
 }
 
+export interface LearnedRule {
+  rule: string;
+  source: string;
+  type: 'anti-pattern' | 'best-practice';
+  addedAt: string;
+}
+
 export interface ApplyRefactorResult {
   success: boolean;
   filesModified: string[];
@@ -972,5 +979,138 @@ export class RefactorAnalyzer {
     // Write modified file
     await fs.writeFile(fullPath, lines.join('\n'), 'utf-8');
     result.filesModified.push(file);
+  }
+
+  /**
+   * Learn rules from refactoring suggestions and append to manifesto
+   *
+   * The --learn flag extracts anti-patterns from refactor suggestions
+   * and appends them to .engineering/manifesto.md as rules.
+   *
+   * Safety: Only appends TEXT rules, never auto-generates regex patterns.
+   */
+  async learnFromRefactor(report: RefactorReport): Promise<LearnedRule[]> {
+    const learnedRules: LearnedRule[] = [];
+
+    // Extract rules from high-priority suggestions
+    for (const suggestion of report.suggestions.filter(s => s.priority === 'high')) {
+      const rule = this.extractRuleFromSuggestion(suggestion);
+      if (rule) {
+        learnedRules.push(rule);
+      }
+    }
+
+    // Extract rules from duplicate patterns
+    for (const dup of report.duplicates.slice(0, 5)) {
+      const rule = this.extractRuleFromDuplicate(dup);
+      if (rule) {
+        learnedRules.push(rule);
+      }
+    }
+
+    // Append rules to manifesto (limit to avoid bloat)
+    if (learnedRules.length > 0) {
+      await this.appendToManifesto(learnedRules.slice(0, 5));
+    }
+
+    return learnedRules;
+  }
+
+  /**
+   * Extract a rule from a refactor suggestion
+   */
+  private extractRuleFromSuggestion(suggestion: RefactorSuggestion): LearnedRule | null {
+    let rule = '';
+    const source = suggestion.files.join(', ');
+
+    switch (suggestion.type) {
+      case 'remove-duplicate':
+        rule = `Avoid duplicating code blocks across multiple files. Extract shared logic into reusable functions.`;
+        break;
+      case 'extract-constant':
+        rule = `Replace magic numbers with named constants for better maintainability.`;
+        break;
+      case 'reduce-complexity':
+        rule = `Keep functions under 50 lines. Break large functions into smaller, focused ones.`;
+        break;
+      default:
+        return null;
+    }
+
+    return {
+      rule,
+      source,
+      type: 'anti-pattern',
+      addedAt: new Date().toISOString(),
+    };
+  }
+
+  /**
+   * Extract a rule from a duplicate code block
+   */
+  private extractRuleFromDuplicate(dup: DuplicateBlock): LearnedRule | null {
+    // Only create rule if we have 3+ occurrences (strong signal)
+    if (dup.occurrences.length < 3) return null;
+
+    // Analyze the duplicate code to generate a meaningful rule
+    const preview = dup.preview.toLowerCase();
+    let rule = '';
+
+    if (preview.includes('console.log') || preview.includes('print(')) {
+      rule = 'Remove debug logging statements before production. Use a proper logging framework.';
+    } else if (preview.includes('try') && preview.includes('catch')) {
+      rule = 'Extract common error handling patterns into a shared utility function.';
+    } else if (preview.includes('await') && preview.includes('readfile')) {
+      rule = 'Create a shared file utility for common file operations.';
+    } else if (preview.includes('path.join')) {
+      rule = 'Create path helper functions for commonly used directory patterns.';
+    } else {
+      // Generic rule
+      rule = `Extract this repeated pattern (${dup.lines} lines, ${dup.occurrences.length}x) into a reusable function.`;
+    }
+
+    return {
+      rule,
+      source: dup.occurrences.map(o => `${o.file}:${o.startLine}`).slice(0, 3).join(', '),
+      type: 'anti-pattern',
+      addedAt: new Date().toISOString(),
+    };
+  }
+
+  /**
+   * Append learned rules to .engineering/manifesto.md
+   */
+  private async appendToManifesto(rules: LearnedRule[]): Promise<void> {
+    const manifestoPath = path.join(this.workingDir, '.engineering', 'manifesto.md');
+
+    try {
+      let content = '';
+      try {
+        content = await fs.readFile(manifestoPath, 'utf-8');
+      } catch {
+        // Manifesto doesn't exist, create with header
+        content = '# Project Manifesto\n\n';
+      }
+
+      // Check if we already have a "Learned Rules" section
+      const learnedSectionHeader = '## 📚 LEARNED RULES (Auto-generated)';
+      let learnedSection = content.includes(learnedSectionHeader)
+        ? ''
+        : `\n\n${learnedSectionHeader}\n`;
+
+      // Add new rules
+      learnedSection += `\n### ${new Date().toISOString().split('T')[0]}\n`;
+      for (const rule of rules) {
+        learnedSection += `- **[${rule.type}]** ${rule.rule}\n`;
+        learnedSection += `  - Source: \`${rule.source}\`\n`;
+      }
+
+      // Append to manifesto
+      const newContent = content + learnedSection;
+      await fs.writeFile(manifestoPath, newContent, 'utf-8');
+    } catch (error) {
+      // Silently fail if we can't write to manifesto
+      console.error('Failed to append to manifesto:', error);
+    }
   }
 }

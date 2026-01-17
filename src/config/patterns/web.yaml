@@ -1,0 +1,199 @@
+# Web Application Safety Patterns
+# Profile: web (Node.js, React, Vue, Angular, Express, NestJS)
+# These patterns detect security vulnerabilities and anti-patterns
+
+profile: web
+description: "Security and quality patterns for web applications - OWASP Top 10 focused"
+version: "1.0.0"
+
+patterns:
+  # ============================================
+  # INJECTION VULNERABILITIES (CRITICAL)
+  # ============================================
+
+  - name: "SQL String Concatenation"
+    regex: "(query|execute|raw)\\s*\\(\\s*[`'\"].*\\$\\{|\\+\\s*\\w+\\s*\\+"
+    severity: critical
+    type: safety
+    message: "Possible SQL injection via string concatenation."
+    suggestion: "Use parameterized queries or ORM methods."
+    rationale: "OWASP A03:2021 - Injection"
+    tags: ["sql-injection", "owasp", "security"]
+
+  - name: "NoSQL Injection Risk"
+    regex: "\\.(find|findOne|update|delete)\\s*\\(\\s*\\{[^}]*\\$\\{"
+    severity: critical
+    type: safety
+    message: "Possible NoSQL injection via template literal in query."
+    suggestion: "Sanitize user input before using in database queries."
+    tags: ["nosql-injection", "mongodb", "security"]
+
+  - name: "Eval Usage"
+    regex: "\\beval\\s*\\("
+    severity: critical
+    type: safety
+    message: "eval() detected. High risk of code injection."
+    suggestion: "Never use eval with user input. Use JSON.parse for data."
+    rationale: "eval() executes arbitrary code, enabling RCE attacks."
+    tags: ["code-injection", "eval", "security"]
+
+  - name: "Function Constructor"
+    regex: "new\\s+Function\\s*\\("
+    severity: critical
+    type: safety
+    message: "Function constructor detected. Similar risk to eval()."
+    suggestion: "Avoid dynamic function creation from strings."
+    tags: ["code-injection", "security"]
+
+  # ============================================
+  # XSS VULNERABILITIES (HIGH)
+  # ============================================
+
+  - name: "innerHTML Assignment"
+    regex: "\\.innerHTML\\s*="
+    severity: warning
+    type: safety
+    message: "Direct innerHTML assignment detected. XSS risk if user input involved."
+    suggestion: "Use textContent, or sanitize with DOMPurify before innerHTML."
+    rationale: "OWASP A03:2021 - Injection (XSS)"
+    tags: ["xss", "dom", "security"]
+
+  - name: "dangerouslySetInnerHTML (React)"
+    regex: "dangerouslySetInnerHTML"
+    severity: warning
+    type: safety
+    message: "dangerouslySetInnerHTML detected. Ensure content is sanitized."
+    suggestion: "Sanitize content with DOMPurify before rendering."
+    tags: ["xss", "react", "security"]
+
+  - name: "document.write"
+    regex: "document\\.write\\s*\\("
+    severity: warning
+    type: safety
+    message: "document.write() detected. XSS risk and performance issues."
+    suggestion: "Use DOM manipulation methods instead."
+    tags: ["xss", "dom", "security"]
+
+  # ============================================
+  # HARDCODED SECRETS (CRITICAL)
+  # ============================================
+
+  - name: "Hardcoded API Key"
+    regex: "(api[_-]?key|apikey)\\s*[=:]\\s*['\"][^'\"]{10,}['\"]"
+    severity: critical
+    type: secret
+    message: "Hardcoded API key detected."
+    suggestion: "Use environment variables: process.env.API_KEY"
+    tags: ["secrets", "api-key", "security"]
+
+  - name: "Hardcoded Password"
+    regex: "(password|passwd|pwd)\\s*[=:]\\s*['\"][^'\"]{4,}['\"]"
+    severity: critical
+    type: secret
+    message: "Hardcoded password detected."
+    suggestion: "Use environment variables or secret manager."
+    tags: ["secrets", "password", "security"]
+
+  - name: "Hardcoded JWT Secret"
+    regex: "(jwt[_-]?secret|secret[_-]?key)\\s*[=:]\\s*['\"][^'\"]{8,}['\"]"
+    severity: critical
+    type: secret
+    message: "Hardcoded JWT secret detected."
+    suggestion: "Use environment variables: process.env.JWT_SECRET"
+    tags: ["secrets", "jwt", "security"]
+
+  # ============================================
+  # BLOCKING / SYNC OPERATIONS (HIGH)
+  # ============================================
+
+  - name: "Synchronous File Read"
+    regex: "\\breadFileSync\\s*\\("
+    severity: warning
+    type: safety
+    message: "Synchronous file read blocks event loop."
+    suggestion: "Use async fs.promises.readFile() or fs.readFile() with callback."
+    tags: ["blocking", "async", "performance"]
+
+  - name: "Synchronous File Write"
+    regex: "\\bwriteFileSync\\s*\\("
+    severity: warning
+    type: safety
+    message: "Synchronous file write blocks event loop."
+    suggestion: "Use async fs.promises.writeFile()."
+    tags: ["blocking", "async", "performance"]
+
+  - name: "Synchronous File Operations"
+    regex: "\\b(existsSync|readdirSync|statSync|mkdirSync)\\s*\\("
+    severity: info
+    type: safety
+    message: "Synchronous file operation detected. May block event loop."
+    suggestion: "Consider async alternatives for production code."
+    tags: ["blocking", "async"]
+
+  # ============================================
+  # CONSOLE IN PRODUCTION (MEDIUM)
+  # ============================================
+
+  - name: "Console.log in Code"
+    regex: "console\\.(log|debug|info)\\s*\\("
+    severity: info
+    type: safety
+    message: "console.log detected. Remove or replace with proper logging."
+    suggestion: "Use structured logging library (Winston, Pino) in production."
+    tags: ["logging", "debug", "production"]
+
+  - name: "Console.error Without Context"
+    regex: "console\\.error\\s*\\(\\s*[^,)]+\\s*\\)"
+    severity: info
+    type: safety
+    message: "console.error with single argument. May lack context."
+    suggestion: "Include error object and context in log message."
+    tags: ["logging", "error-handling"]
+
+  # ============================================
+  # TYPESCRIPT ANTI-PATTERNS (MEDIUM)
+  # ============================================
+
+  - name: "Any Type Usage"
+    regex: ":\\s*any\\b"
+    severity: info
+    type: safety
+    message: "'any' type usage defeats TypeScript safety."
+    suggestion: "Use specific types, 'unknown', or generics instead."
+    tags: ["typescript", "type-safety"]
+
+  - name: "Type Assertion Abuse"
+    regex: "as\\s+any\\b"
+    severity: warning
+    type: safety
+    message: "'as any' type assertion is unsafe."
+    suggestion: "Use proper typing or type guards instead."
+    tags: ["typescript", "type-safety"]
+
+  - name: "Non-null Assertion Abuse"
+    regex: "\\w+!\\."
+    severity: info
+    type: safety
+    message: "Non-null assertion (!) bypasses null checks."
+    suggestion: "Use optional chaining (?.) or proper null handling."
+    tags: ["typescript", "null-safety"]
+
+  # ============================================
+  # ERROR HANDLING (MEDIUM)
+  # ============================================
+
+  - name: "Empty Catch Block"
+    regex: "catch\\s*\\([^)]*\\)\\s*\\{\\s*\\}"
+    severity: warning
+    type: safety
+    message: "Empty catch block swallows errors silently."
+    suggestion: "Log error or re-throw. Never swallow exceptions silently."
+    tags: ["error-handling", "debugging"]
+
+  - name: "Catch Without Error Handling"
+    regex: "catch\\s*\\(\\s*\\)"
+    severity: warning
+    type: safety
+    message: "Catch block without error parameter."
+    suggestion: "Always capture and handle the error object."
+    tags: ["error-handling"]

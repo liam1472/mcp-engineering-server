@@ -106,13 +106,16 @@ describe('core/config.ts', () => {
       });
 
       it('should return config with correct values', async () => {
-        const config = await configManager.initialize('my-project', 'native-rust');
+        const result = await configManager.initialize('my-project', 'native-rust');
 
-        expect(config.projectName).toBe('my-project');
-        expect(config.projectType).toBe('native-rust');
-        expect(config.version).toBe('1.0.0');
-        expect(config.security.enabled).toBe(true);
-        expect(config.indexes.functions).toBe(true);
+        expect(result.config.projectName).toBe('my-project');
+        expect(result.config.projectType).toBe('native-rust');
+        expect(result.config.version).toBe('1.0.0');
+        expect(result.config.security.enabled).toBe(true);
+        expect(result.config.indexes.functions).toBe(true);
+        expect(result.profile).toBe('native');
+        expect(result.architecturalReport).toBeDefined();
+        expect(result.architecturalReport.gaps).toBeInstanceOf(Array);
       });
     });
 

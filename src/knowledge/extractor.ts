@@ -1,6 +1,13 @@
 /**
  * Knowledge Extractor
  * Extracts patterns, solutions, and learnings from completed features
+ *
+ * Storage structure (v2):
+ * .engineering/knowledge/
+ * ├── index.yaml          # Metadata + summary + keywords for search
+ * └── details/            # Full content files
+ *     ├── 2026-01-17_fix-i2c-timeout.md
+ *     └── ...
  */
 
 import * as fs from 'fs/promises';
@@ -16,13 +23,41 @@ interface FeatureManifest {
   decisions: string[];
 }
 
+// Index entry for the new split structure
+interface KnowledgeIndexEntry {
+  id: string;
+  type: KnowledgeEntry['type'];
+  title: string;
+  summary: string;
+  keywords: string[];
+  path: string; // Relative path to detail file
+  date: string;
+  source: {
+    feature: string;
+    files: string[];
+  };
+}
+
+interface KnowledgeIndex {
+  version: string;
+  entries: KnowledgeIndexEntry[];
+  lastUpdated: string;
+}
+
 export class KnowledgeExtractor {
   private workingDir: string;
-  private knowledgePath: string;
+  private knowledgeDir: string;
+  private indexPath: string;
+  private detailsDir: string;
+  // Legacy path for backwards compatibility
+  private legacyPath: string;
 
   constructor(workingDir?: string) {
     this.workingDir = workingDir ?? process.cwd();
-    this.knowledgePath = path.join(this.workingDir, '.engineering', 'knowledge', 'base.yaml');
+    this.knowledgeDir = path.join(this.workingDir, '.engineering', 'knowledge');
+    this.indexPath = path.join(this.knowledgeDir, 'index.yaml');
+    this.detailsDir = path.join(this.knowledgeDir, 'details');
+    this.legacyPath = path.join(this.knowledgeDir, 'base.yaml');
   }
 
   async extractFromFeature(featurePath: string): Promise<KnowledgeEntry[]> {
@@ -193,62 +228,235 @@ export class KnowledgeExtractor {
   async saveKnowledge(entries: KnowledgeEntry[]): Promise<number> {
     if (entries.length === 0) return 0;
 
-    // Load existing knowledge base
-    let base: KnowledgeBase;
+    // Ensure directories exist
+    await fs.mkdir(this.detailsDir, { recursive: true });
+
+    // Load existing index
+    let index: KnowledgeIndex;
     try {
-      const content = await fs.readFile(this.knowledgePath, 'utf-8');
-      base = parse(content) as KnowledgeBase;
+      const content = await fs.readFile(this.indexPath, 'utf-8');
+      index = parse(content) as KnowledgeIndex;
     } catch {
-      base = {
+      index = {
+        version: '2.0',
+        entries: [],
+        lastUpdated: new Date().toISOString(),
+      };
+    }
+
+    // Also maintain backwards compatible base.yaml
+    let legacyBase: KnowledgeBase;
+    try {
+      const content = await fs.readFile(this.legacyPath, 'utf-8');
+      legacyBase = parse(content) as KnowledgeBase;
+    } catch {
+      legacyBase = {
         version: '1.0',
         entries: [],
         lastUpdated: new Date().toISOString(),
       };
     }
 
-    // Add new entries (avoiding duplicates by ID)
-    const existingIds = new Set(base.entries.map(e => e.id));
+    // Get existing IDs to avoid duplicates
+    const existingIds = new Set(index.entries.map(e => e.id));
     const newEntries = entries.filter(e => !existingIds.has(e.id));
-    base.entries.push(...newEntries);
-    base.lastUpdated = new Date().toISOString();
 
-    // Save
-    await fs.mkdir(path.dirname(this.knowledgePath), { recursive: true });
-    await fs.writeFile(this.knowledgePath, stringify(base, { indent: 2 }), 'utf-8');
+    let savedCount = 0;
+    for (const entry of newEntries) {
+      // Generate file name for detail
+      const date = new Date().toISOString().split('T')[0];
+      const safeTitle = entry.title
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, '-')
+        .replace(/^-+|-+$/g, '')
+        .slice(0, 50);
+      const fileName = `${date}_${safeTitle}.md`;
+      const detailPath = path.join(this.detailsDir, fileName);
 
-    return newEntries.length;
+      // Write detail file as markdown
+      const detailContent = this.formatDetailMarkdown(entry);
+      await fs.writeFile(detailPath, detailContent, 'utf-8');
+
+      // Create index entry
+      const indexEntry: KnowledgeIndexEntry = {
+        id: entry.id,
+        type: entry.type,
+        title: entry.title,
+        summary: this.summarize(entry.content, 200),
+        keywords: this.extractKeywords(entry),
+        path: `details/${fileName}`,
+        date: entry.source.date,
+        source: {
+          feature: entry.source.feature,
+          files: entry.source.files,
+        },
+      };
+
+      index.entries.push(indexEntry);
+
+      // Also add to legacy base for backwards compatibility
+      legacyBase.entries.push(entry);
+
+      savedCount++;
+    }
+
+    index.lastUpdated = new Date().toISOString();
+    legacyBase.lastUpdated = new Date().toISOString();
+
+    // Save index
+    await fs.writeFile(this.indexPath, stringify(index, { indent: 2 }), 'utf-8');
+
+    // Save legacy base for backwards compatibility
+    await fs.writeFile(this.legacyPath, stringify(legacyBase, { indent: 2 }), 'utf-8');
+
+    return savedCount;
+  }
+
+  /**
+   * Format a knowledge entry as a markdown file
+   */
+  private formatDetailMarkdown(entry: KnowledgeEntry): string {
+    const lines: string[] = [];
+
+    lines.push(`# ${entry.title}`);
+    lines.push('');
+    lines.push(`**Type:** ${entry.type}`);
+    lines.push(`**Date:** ${entry.source.date}`);
+    lines.push(`**Feature:** ${entry.source.feature}`);
+    lines.push(`**Tags:** ${entry.tags.join(', ')}`);
+    lines.push('');
+    lines.push('## Content');
+    lines.push('');
+    lines.push(entry.content);
+    lines.push('');
+    lines.push('## Source Files');
+    lines.push('');
+    for (const file of entry.source.files) {
+      lines.push(`- ${file}`);
+    }
+    lines.push('');
+
+    return lines.join('\n');
+  }
+
+  /**
+   * Extract keywords for fuzzy search
+   */
+  private extractKeywords(entry: KnowledgeEntry): string[] {
+    const keywords = new Set<string>();
+
+    // Add tags
+    for (const tag of entry.tags) {
+      keywords.add(tag.toLowerCase());
+    }
+
+    // Add type
+    keywords.add(entry.type);
+
+    // Add feature name words
+    const featureWords = entry.source.feature.toLowerCase().split(/[-_\s]+/);
+    for (const word of featureWords) {
+      if (word.length > 2) {
+        keywords.add(word);
+      }
+    }
+
+    // Extract significant words from title
+    const titleWords = entry.title.toLowerCase().split(/\s+/);
+    const stopWords = new Set([
+      'the',
+      'a',
+      'an',
+      'is',
+      'are',
+      'was',
+      'were',
+      'to',
+      'from',
+      'in',
+      'on',
+      'for',
+      'with',
+      'and',
+      'or',
+      'of',
+    ]);
+    for (const word of titleWords) {
+      if (word.length > 2 && !stopWords.has(word)) {
+        keywords.add(word.replace(/[^a-z0-9]/g, ''));
+      }
+    }
+
+    return Array.from(keywords).slice(0, 15);
   }
 
   async searchKnowledge(query: string): Promise<KnowledgeEntry[]> {
-    try {
-      const content = await fs.readFile(this.knowledgePath, 'utf-8');
-      const base = parse(content) as KnowledgeBase;
-      const lowerQuery = query.toLowerCase();
+    const lowerQuery = query.toLowerCase();
 
-      return base.entries.filter(
+    // Try new index first
+    try {
+      const indexContent = await fs.readFile(this.indexPath, 'utf-8');
+      const index = parse(indexContent) as KnowledgeIndex;
+
+      // Search using keywords and title
+      const matchingEntries = index.entries.filter(
         entry =>
           entry.title.toLowerCase().includes(lowerQuery) ||
-          entry.content.toLowerCase().includes(lowerQuery) ||
-          entry.tags.some(t => t.toLowerCase().includes(lowerQuery))
+          entry.summary.toLowerCase().includes(lowerQuery) ||
+          entry.keywords.some(k => k.includes(lowerQuery))
       );
+
+      // Load full entries from legacy base for backwards compatibility
+      const legacyContent = await fs.readFile(this.legacyPath, 'utf-8');
+      const legacyBase = parse(legacyContent) as KnowledgeBase;
+      const matchingIds = new Set(matchingEntries.map(e => e.id));
+
+      return legacyBase.entries.filter(e => matchingIds.has(e.id));
     } catch {
-      return [];
+      // Fall back to legacy search
+      try {
+        const content = await fs.readFile(this.legacyPath, 'utf-8');
+        const base = parse(content) as KnowledgeBase;
+
+        return base.entries.filter(
+          entry =>
+            entry.title.toLowerCase().includes(lowerQuery) ||
+            entry.content.toLowerCase().includes(lowerQuery) ||
+            entry.tags.some(t => t.toLowerCase().includes(lowerQuery))
+        );
+      } catch {
+        return [];
+      }
     }
   }
 
   async getStats(): Promise<{ total: number; byType: Record<string, number> }> {
+    // Try new index first
     try {
-      const content = await fs.readFile(this.knowledgePath, 'utf-8');
-      const base = parse(content) as KnowledgeBase;
+      const content = await fs.readFile(this.indexPath, 'utf-8');
+      const index = parse(content) as KnowledgeIndex;
 
       const byType: Record<string, number> = {};
-      for (const entry of base.entries) {
+      for (const entry of index.entries) {
         byType[entry.type] = (byType[entry.type] ?? 0) + 1;
       }
 
-      return { total: base.entries.length, byType };
+      return { total: index.entries.length, byType };
     } catch {
-      return { total: 0, byType: {} };
+      // Fall back to legacy
+      try {
+        const content = await fs.readFile(this.legacyPath, 'utf-8');
+        const base = parse(content) as KnowledgeBase;
+
+        const byType: Record<string, number> = {};
+        for (const entry of base.entries) {
+          byType[entry.type] = (byType[entry.type] ?? 0) + 1;
+        }
+
+        return { total: base.entries.length, byType };
+      } catch {
+        return { total: 0, byType: {} };
+      }
     }
   }
 
@@ -303,6 +511,9 @@ export class KnowledgeExtractor {
 
   setWorkingDir(dir: string): void {
     this.workingDir = dir;
-    this.knowledgePath = path.join(dir, '.engineering', 'knowledge', 'base.yaml');
+    this.knowledgeDir = path.join(dir, '.engineering', 'knowledge');
+    this.indexPath = path.join(this.knowledgeDir, 'index.yaml');
+    this.detailsDir = path.join(this.knowledgeDir, 'details');
+    this.legacyPath = path.join(this.knowledgeDir, 'base.yaml');
   }
 }
