@@ -1563,6 +1563,80 @@ const KEY3 = process.env.AWS_ACCESS_KEY;`);
         expect(content).not.toContain('AKIAIOSFODNN7ANOTHER');
       });
     });
+
+    describe('StringLiteral high-value targets (Phase 6)', () => {
+      it('should generate ENV_VAR names from pattern names (line 756)', async () => {
+        // Test generateEnvVarName regex transformations
+        await writeTestFile(
+          path.join(tempDir, 'test.ts'),
+          `const KEY1 = 'AKIAIOSFODNN7EXAMPLE';`
+        );
+
+        const findings = await scanner.scan();
+        const result = await scanner.applyFixes(findings);
+
+        // Check .env file for env var names
+        const envPath = path.join(tempDir, '.env');
+        const envContent = await fs.readFile(envPath, 'utf-8');
+
+        // Line 756: Regex replacements in generateEnvVarName
+        // Should convert "AWS Access Key" → "AWS_ACCESS_KEY"
+        expect(envContent).toContain('AWS_ACCESS_KEY=');
+
+        expect(result.success).toBe(true);
+        expect(result.envCreated).toBe(true);
+      });
+
+      it('should generate .env.example with empty values (line 735)', async () => {
+        // Test .env.example generation (line 735: join separator)
+        await writeTestFile(
+          path.join(tempDir, 'test.ts'),
+          `const API_KEY = 'AKIAIOSFODNN7EXAMPLE';`
+        );
+
+        const findings = await scanner.scan();
+        const result = await scanner.applyFixes(findings);
+
+        // Check .env.example file
+        const examplePath = path.join(tempDir, '.env.example');
+        const exampleContent = await fs.readFile(examplePath, 'utf-8');
+
+        // Line 735: should join with '\n'
+        // Should have header lines and env var name
+        expect(exampleContent).toContain('Environment Variables');
+        expect(exampleContent).toContain('AWS_ACCESS_KEY=');
+
+        // Should have multiple lines (not single line)
+        const lines = exampleContent.split('\n');
+        expect(lines.length).toBeGreaterThan(1);
+      });
+
+      it('should sanitize pattern names for env vars (line 756)', async () => {
+        // Test edge cases for generateEnvVarName
+        await writeTestFile(
+          path.join(tempDir, 'test.ts'),
+          `const KEY = 'AKIAIOSFODNN7EXAMPLE';`
+        );
+
+        const findings = await scanner.scan();
+        const result = await scanner.applyFixes(findings);
+
+        const envPath = path.join(tempDir, '.env');
+        const envContent = await fs.readFile(envPath, 'utf-8');
+
+        // Line 756 mutations: Test regex replacement
+        // Should convert to uppercase with underscores
+        // "AWS Access Key" should become "AWS_ACCESS_KEY"
+        expect(envContent).toMatch(/AWS_ACCESS_KEY=/);
+
+        // Env var name should be all uppercase letters/numbers/underscores
+        const envVarMatch = envContent.match(/^([A-Z0-9_]+)=/m);
+        expect(envVarMatch).toBeTruthy();
+        if (envVarMatch) {
+          expect(envVarMatch[1]).toMatch(/^[A-Z0-9_]+$/);
+        }
+      });
+    });
     });
   });
 
