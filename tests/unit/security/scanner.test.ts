@@ -2745,6 +2745,164 @@ const KEY3 = process.env.AWS_ACCESS_KEY;`);
         // Should generate JS replacement despite uppercase extension
         expect(content).toContain('process.env.AWS_ACCESS_KEY');
       });
+
+      // Additional language support tests to kill StringLiteral mutants on line 821
+      it('should handle .tsx TypeScript React files', async () => {
+        await writeTestFile(
+          path.join(tempDir, 'component.tsx'),
+          `const KEY = 'AKIAIOSFODNN7EXAMPLE';`
+        );
+        const findings = await scanner.scan();
+        const result = await scanner.applyFixes(findings);
+        expect(result.success).toBe(true);
+        const content = await fs.readFile(path.join(tempDir, 'component.tsx'), 'utf-8');
+        expect(content).toContain('process.env.AWS_ACCESS_KEY');
+      });
+
+      it('should handle .jsx React files', async () => {
+        await writeTestFile(
+          path.join(tempDir, 'component.jsx'),
+          `const KEY = 'AKIAIOSFODNN7EXAMPLE';`
+        );
+        const findings = await scanner.scan();
+        const result = await scanner.applyFixes(findings);
+        expect(result.success).toBe(true);
+        const content = await fs.readFile(path.join(tempDir, 'component.jsx'), 'utf-8');
+        expect(content).toContain('process.env.AWS_ACCESS_KEY');
+      });
+
+      it('should handle .mjs ES module files', async () => {
+        await writeTestFile(
+          path.join(tempDir, 'config.mjs'),
+          `const KEY = 'AKIAIOSFODNN7EXAMPLE';`
+        );
+        const findings = await scanner.scan();
+        const result = await scanner.applyFixes(findings);
+        expect(result.success).toBe(true);
+        const content = await fs.readFile(path.join(tempDir, 'config.mjs'), 'utf-8');
+        expect(content).toContain('process.env.AWS_ACCESS_KEY');
+      });
+
+      it('should handle .cjs CommonJS files', async () => {
+        await writeTestFile(
+          path.join(tempDir, 'config.cjs'),
+          `const KEY = 'AKIAIOSFODNN7EXAMPLE';`
+        );
+        const findings = await scanner.scan();
+        const result = await scanner.applyFixes(findings);
+        expect(result.success).toBe(true);
+        const content = await fs.readFile(path.join(tempDir, 'config.cjs'), 'utf-8');
+        expect(content).toContain('process.env.AWS_ACCESS_KEY');
+      });
+
+      it('should handle .cs C# files', async () => {
+        await writeTestFile(
+          path.join(tempDir, 'Config.cs'),
+          `const string apiKey = "AKIAIOSFODNN7EXAMPLE";`
+        );
+        const findings = await scanner.scan();
+        const result = await scanner.applyFixes(findings);
+        expect(result.success).toBe(true);
+        const content = await fs.readFile(path.join(tempDir, 'Config.cs'), 'utf-8');
+        expect(content).toContain('Environment.GetEnvironmentVariable("AWS_ACCESS_KEY")');
+      });
+
+      it('should handle .c C files', async () => {
+        await writeTestFile(
+          path.join(tempDir, 'config.c'),
+          `const char* api_key = "AKIAIOSFODNN7EXAMPLE";`
+        );
+        const findings = await scanner.scan();
+        const result = await scanner.applyFixes(findings);
+        expect(result.success).toBe(true);
+        const content = await fs.readFile(path.join(tempDir, 'config.c'), 'utf-8');
+        expect(content).toContain('getenv("AWS_ACCESS_KEY")');
+      });
+
+      it('should handle .cpp C++ files', async () => {
+        await writeTestFile(
+          path.join(tempDir, 'config.cpp'),
+          `std::string api_key = "AKIAIOSFODNN7EXAMPLE";`
+        );
+        const findings = await scanner.scan();
+        const result = await scanner.applyFixes(findings);
+        expect(result.success).toBe(true);
+        const content = await fs.readFile(path.join(tempDir, 'config.cpp'), 'utf-8');
+        expect(content).toContain('getenv("AWS_ACCESS_KEY")');
+      });
+
+      it('should handle .h C header files', async () => {
+        await writeTestFile(
+          path.join(tempDir, 'config.h'),
+          `#define API_KEY "AKIAIOSFODNN7EXAMPLE"`
+        );
+        const findings = await scanner.scan();
+        const result = await scanner.applyFixes(findings);
+        expect(result.success).toBe(true);
+        const content = await fs.readFile(path.join(tempDir, 'config.h'), 'utf-8');
+        expect(content).toContain('getenv("AWS_ACCESS_KEY")');
+      });
+
+      it('should handle .hpp C++ header files', async () => {
+        await writeTestFile(
+          path.join(tempDir, 'config.hpp'),
+          `const std::string API_KEY = "AKIAIOSFODNN7EXAMPLE";`
+        );
+        const findings = await scanner.scan();
+        const result = await scanner.applyFixes(findings);
+        expect(result.success).toBe(true);
+        const content = await fs.readFile(path.join(tempDir, 'config.hpp'), 'utf-8');
+        expect(content).toContain('getenv("AWS_ACCESS_KEY")');
+      });
+
+      it('should handle .rb Ruby files', async () => {
+        await writeTestFile(
+          path.join(tempDir, 'config.rb'),
+          `API_KEY = 'AKIAIOSFODNN7EXAMPLE'`
+        );
+        const findings = await scanner.scan();
+        const result = await scanner.applyFixes(findings);
+        expect(result.success).toBe(true);
+        const content = await fs.readFile(path.join(tempDir, 'config.rb'), 'utf-8');
+        expect(content).toContain("ENV['AWS_ACCESS_KEY']");
+      });
+
+      it('should handle .php PHP files', async () => {
+        await writeTestFile(
+          path.join(tempDir, 'config.php'),
+          `$apiKey = 'AKIAIOSFODNN7EXAMPLE';`
+        );
+        const findings = await scanner.scan();
+        const result = await scanner.applyFixes(findings);
+        expect(result.success).toBe(true);
+        const content = await fs.readFile(path.join(tempDir, 'config.php'), 'utf-8');
+        expect(content).toContain("$_ENV['AWS_ACCESS_KEY']");
+      });
+
+      it('should handle .java Java files', async () => {
+        await writeTestFile(
+          path.join(tempDir, 'Config.java'),
+          `String apiKey = "AKIAIOSFODNN7EXAMPLE";`
+        );
+        const findings = await scanner.scan();
+        const result = await scanner.applyFixes(findings);
+        expect(result.success).toBe(true);
+        const content = await fs.readFile(path.join(tempDir, 'Config.java'), 'utf-8');
+        expect(content).toContain('System.getenv("AWS_ACCESS_KEY")');
+      });
+
+      it('should use default process.env for unknown file types', async () => {
+        await writeTestFile(
+          path.join(tempDir, 'config.unknown'),
+          `KEY = 'AKIAIOSFODNN7EXAMPLE'`
+        );
+        const findings = await scanner.scan();
+        const result = await scanner.applyFixes(findings);
+        expect(result.success).toBe(true);
+        const content = await fs.readFile(path.join(tempDir, 'config.unknown'), 'utf-8');
+        // Line 842: Default fallback to process.env
+        expect(content).toContain('process.env.AWS_ACCESS_KEY');
+      });
     });
 
     // Phase 1.3 tests removed - profileLoaded now in SafetyPatternMatcher
