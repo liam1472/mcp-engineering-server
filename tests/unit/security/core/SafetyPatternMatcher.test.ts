@@ -260,4 +260,269 @@ patterns:
       expect(cached!.length).toBeGreaterThan(0);
     });
   });
+
+  describe('matchPatterns', () => {
+    it('should return empty array when no patterns provided', () => {
+      const content = 'const x = malloc(100);';
+      const findings = matcher.matchPatterns(content, [], 'test.c');
+
+      expect(findings).toEqual([]);
+    });
+
+    it('should return empty array when content does not match any patterns', () => {
+      const patterns = [
+        {
+          name: 'Test Pattern',
+          type: 'safety' as const,
+          severity: 'critical' as const,
+          pattern: /\bFORBIDDEN_KEYWORD\b/g,
+          message: 'Test message',
+          suggestion: 'Test suggestion',
+          rationale: undefined,
+          tags: undefined,
+        },
+      ];
+
+      const content = 'const x = 42;';
+      const findings = matcher.matchPatterns(content, patterns, 'test.js');
+
+      expect(findings).toEqual([]);
+    });
+
+    it('should find matches for a single pattern', () => {
+      const patterns = [
+        {
+          name: 'Malloc Detection',
+          type: 'safety' as const,
+          severity: 'critical' as const,
+          pattern: /\b(malloc|free)\s*\(/g,
+          message: 'Dynamic allocation detected',
+          suggestion: 'Use static buffers',
+          rationale: undefined,
+          tags: undefined,
+        },
+      ];
+
+      const content = `void setup() {
+  char* buffer = malloc(100);
+  free(buffer);
+}`;
+
+      const findings = matcher.matchPatterns(content, patterns, 'test.c');
+
+      expect(findings.length).toBe(2);
+
+      expect(findings[0].type).toBe('secret');
+      expect(findings[0].severity).toBe('critical');
+      expect(findings[0].file).toBe('test.c');
+      expect(findings[0].line).toBe(2);
+      expect(findings[0].pattern).toBe('[SAFETY] Malloc Detection');
+      expect(findings[0].match).toBe('malloc(');
+      expect(findings[0].suggestion).toBe('Use static buffers');
+
+      expect(findings[1].match).toBe('free(');
+      expect(findings[1].line).toBe(3);
+    });
+
+    it('should map severity levels correctly (critical → critical)', () => {
+      const patterns = [
+        {
+          name: 'Critical Pattern',
+          type: 'safety' as const,
+          severity: 'critical' as const,
+          pattern: /\beval\s*\(/g,
+          message: 'Eval detected',
+          suggestion: 'Never use eval',
+          rationale: undefined,
+          tags: undefined,
+        },
+      ];
+
+      const content = 'eval("code");';
+      const findings = matcher.matchPatterns(content, patterns, 'test.js');
+
+      expect(findings[0].severity).toBe('critical');
+    });
+
+    it('should map severity levels correctly (warning → high)', () => {
+      const patterns = [
+        {
+          name: 'Warning Pattern',
+          type: 'safety' as const,
+          severity: 'warning' as const,
+          pattern: /\bdelay\s*\(/g,
+          message: 'Blocking delay detected',
+          suggestion: 'Use non-blocking alternative',
+          rationale: undefined,
+          tags: undefined,
+        },
+      ];
+
+      const content = 'delay(1000);';
+      const findings = matcher.matchPatterns(content, patterns, 'test.ino');
+
+      expect(findings[0].severity).toBe('high');
+    });
+
+    it('should map severity levels correctly (info → medium)', () => {
+      const patterns = [
+        {
+          name: 'Info Pattern',
+          type: 'safety' as const,
+          severity: 'info' as const,
+          pattern: /\bfloat\s+\w+\s*=/g,
+          message: 'Float detected',
+          suggestion: 'Consider fixed-point',
+          rationale: undefined,
+          tags: undefined,
+        },
+      ];
+
+      const content = 'float x = 3.14;';
+      const findings = matcher.matchPatterns(content, patterns, 'test.c');
+
+      expect(findings[0].severity).toBe('medium');
+    });
+
+    it('should truncate long matches to 50 characters', () => {
+      const patterns = [
+        {
+          name: 'Long Match Pattern',
+          type: 'safety' as const,
+          severity: 'warning' as const,
+          pattern: /const\s+\w+\s*=\s*['"][^'"]+['"]/g,
+          message: 'Long string detected',
+          suggestion: 'Use config file',
+          rationale: undefined,
+          tags: undefined,
+        },
+      ];
+
+      const longString = 'A'.repeat(100);
+      const content = `const key = "${longString}";`;
+      const findings = matcher.matchPatterns(content, patterns, 'test.js');
+
+      expect(findings[0].match.length).toBeLessThanOrEqual(53); // 50 + '...'
+      expect(findings[0].match).toContain('...');
+    });
+
+    it('should not truncate matches under 50 characters', () => {
+      const patterns = [
+        {
+          name: 'Short Match Pattern',
+          type: 'safety' as const,
+          severity: 'warning' as const,
+          pattern: /\bmalloc\s*\(/g,
+          message: 'Malloc detected',
+          suggestion: 'Use static buffers',
+          rationale: undefined,
+          tags: undefined,
+        },
+      ];
+
+      const content = 'malloc(';
+      const findings = matcher.matchPatterns(content, patterns, 'test.c');
+
+      expect(findings[0].match).toBe('malloc(');
+      expect(findings[0].match).not.toContain('...');
+    });
+
+    it('should handle multiple patterns matching the same line', () => {
+      const patterns = [
+        {
+          name: 'Malloc Pattern',
+          type: 'safety' as const,
+          severity: 'critical' as const,
+          pattern: /\bmalloc\s*\(/g,
+          message: 'Malloc detected',
+          suggestion: 'Use static buffers',
+          rationale: undefined,
+          tags: undefined,
+        },
+        {
+          name: 'Free Pattern',
+          type: 'safety' as const,
+          severity: 'critical' as const,
+          pattern: /\bfree\s*\(/g,
+          message: 'Free detected',
+          suggestion: 'Use static buffers',
+          rationale: undefined,
+          tags: undefined,
+        },
+      ];
+
+      const content = 'ptr = malloc(100); free(ptr);';
+      const findings = matcher.matchPatterns(content, patterns, 'test.c');
+
+      expect(findings.length).toBe(2);
+      expect(findings[0].pattern).toBe('[SAFETY] Malloc Pattern');
+      expect(findings[1].pattern).toBe('[SAFETY] Free Pattern');
+    });
+
+    it('should handle empty lines gracefully', () => {
+      const patterns = [
+        {
+          name: 'Test Pattern',
+          type: 'safety' as const,
+          severity: 'warning' as const,
+          pattern: /\btest\b/g,
+          message: 'Test found',
+          suggestion: 'Remove test',
+          rationale: undefined,
+          tags: undefined,
+        },
+      ];
+
+      const content = 'test\n\n\ntest';
+      const findings = matcher.matchPatterns(content, patterns, 'test.txt');
+
+      expect(findings.length).toBe(2);
+      expect(findings[0].line).toBe(1);
+      expect(findings[1].line).toBe(4);
+    });
+
+    it('should use message as suggestion fallback when suggestion is undefined', () => {
+      const patterns = [
+        {
+          name: 'No Suggestion Pattern',
+          type: 'safety' as const,
+          severity: 'warning' as const,
+          pattern: /\btest\b/g,
+          message: 'Test message',
+          suggestion: undefined,
+          rationale: undefined,
+          tags: undefined,
+        },
+      ];
+
+      const content = 'test';
+      const findings = matcher.matchPatterns(content, patterns, 'test.txt');
+
+      expect(findings[0].suggestion).toBe('Test message');
+    });
+
+    it('should reset regex lastIndex between lines', () => {
+      const patterns = [
+        {
+          name: 'Global Regex Pattern',
+          type: 'safety' as const,
+          severity: 'warning' as const,
+          pattern: /\bfoo\b/g,
+          message: 'Foo detected',
+          suggestion: 'Use bar',
+          rationale: undefined,
+          tags: undefined,
+        },
+      ];
+
+      const content = 'foo\nfoo\nfoo';
+      const findings = matcher.matchPatterns(content, patterns, 'test.txt');
+
+      // Should find all 3 instances, not just the first one
+      expect(findings.length).toBe(3);
+      expect(findings[0].line).toBe(1);
+      expect(findings[1].line).toBe(2);
+      expect(findings[2].line).toBe(3);
+    });
+  });
 });

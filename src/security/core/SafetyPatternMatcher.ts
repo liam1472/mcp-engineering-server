@@ -146,9 +146,44 @@ export class SafetyPatternMatcher {
     patterns: SafetyPattern[],
     filePath: string
   ): SecurityFinding[] {
-    // TODO: Implementation will be extracted from scanner.ts
-    // This will be the scanSafetyPatterns() logic
-    return [];
+    const findings: SecurityFinding[] = [];
+    const lines = content.split('\n');
+
+    // Scan for safety issues (profile-based patterns)
+    for (const pattern of patterns) {
+      for (let lineNum = 0; lineNum < lines.length; lineNum++) {
+        const line = lines[lineNum];
+        if (!line) continue;
+
+        // Reset lastIndex for global regex
+        pattern.pattern.lastIndex = 0;
+
+        const matches = line.matchAll(pattern.pattern);
+        for (const match of matches) {
+          const matchStr = match[0];
+
+          // Map safety severity to SecurityFinding severity
+          const severity: SecurityFinding['severity'] =
+            pattern.severity === 'critical'
+              ? 'critical'
+              : pattern.severity === 'warning'
+                ? 'high'
+                : 'medium';
+
+          findings.push({
+            type: 'secret', // Use 'secret' type for compatibility (TODO: extend type)
+            severity,
+            file: filePath,
+            line: lineNum + 1,
+            pattern: `[SAFETY] ${pattern.name}`,
+            match: matchStr.length > 50 ? `${matchStr.slice(0, 50)}...` : matchStr,
+            suggestion: pattern.suggestion ?? pattern.message,
+          });
+        }
+      }
+    }
+
+    return findings;
   }
 
   /**
