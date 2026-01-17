@@ -1,122 +1,230 @@
-📊 BACKLOG REVIEW - Current Status
-Current Score: 68.43% (374 killed, 129 survived, 44 no-coverage)
-Target Score: ~82% (projected)
-Remaining Gap: ~14% (~97 mutants to kill)
+# 📊 BACKLOG REVIEW - Updated After Phase 4
 
-Mutation Types Breakdown
-Type	Survived	No-Coverage	Total Remaining	Potential Impact
-StringLiteral	46	23	69	9.52% 🔥
-No-Coverage (all types)	0	44	44	6.07% 🔥🔥🔥
-ConditionalExpression	31	5	36	4.96%
-EqualityOperator	16	3	19	2.62%
-MethodExpression	9	0	9	1.24%
-ArrayDeclaration	6	0	6	0.83%
-BooleanLiteral	6	0	6	0.83%
-Regex	5	0	5	0.69%
-BlockStatement	5	10	15	2.07%
-LogicalOperator	2	1	3	0.41%
-Other	3	2	5	0.69%
-🎯 BACKLOG TICKETS (Priority Order)
-⭐ HIGH PRIORITY (Highest ROI)
-Ticket #1: No-Coverage Mutants
-Impact: +6.07% (44 mutants)
-Effort: Medium (need to add tests for uncovered code paths)
-Lines: Various (need to identify which lines have no coverage)
-Status: Not started
-Blockers: None
-Ticket #2: StringLiteral Mutants
-Impact: +9.52% (69 mutants total: 46 survived + 23 no-cov)
-Effort: High (many string literals in error messages, patterns, etc.)
-Lines: Scattered across scanner.ts
-Status: Partially done (Phase 3: 1 killed)
-Blockers: Many are in error messages (low value to test)
-🔶 MEDIUM PRIORITY
-Ticket #3: EqualityOperator Mutants
-Impact: +2.62% (19 mutants: 16 survived + 3 no-cov)
-Effort: Medium (boundary condition tests)
-Lines: 323, 380, etc. (boundary checks)
-Status: Not started
-Blockers: None
-Ticket #4: ConditionalExpression Remaining
-Impact: +4.96% (36 mutants: 31 survived + 5 no-cov)
-Effort: Medium-High (defensive checks hard to kill)
-Lines: 274, 325, 358, 380, 443, 592, 637-651, etc.
-Status: Partially done (Phase 2: 1 killed)
-Blockers: Many are defensive checks
-Ticket #5: BlockStatement Mutants
-Impact: +2.07% (15 mutants: 5 survived + 10 no-cov)
-Effort: Medium (empty block tests)
-Lines: Various try-catch, if blocks
-Status: Partially done (1 killed in Phase 2)
-Blockers: None
-🔵 LOW PRIORITY
-Ticket #6: MethodExpression Mutants
-Impact: +1.24% (9 mutants)
-Effort: Low-Medium
-Lines: 463, 495, etc.
-Status: Not started
-Blockers: None
-Ticket #7: BooleanLiteral Mutants (Phase 3)
-Impact: +0.83% (6 mutants)
-Effort: High (need AtomicFileWriter mocking)
-Lines: 500, 521, 534, 538, 556
-Status: Tests exist but don't kill mutants
-Blockers: AtomicFileWriter integration issue
-Ticket #8: ArrayDeclaration Mutants
-Impact: +0.83% (6 mutants)
-Effort: Medium
-Lines: 295, etc.
-Status: Partially done (2 killed in Phase 2)
-Blockers: None
-Ticket #9: Regex Mutants
-Impact: +0.69% (5 mutants)
-Effort: Low (regex pattern tests)
-Lines: 478, 487, etc.
-Status: Not started
-Blockers: None
-Ticket #10: Other (LogicalOperator, ArithmeticOperator, etc.)
-Impact: +1.10% (8 mutants)
-Effort: Low-Medium
-Status: Not started
-Blockers: None
-🔧 DEFERRED (Low ROI / Complex)
-Ticket #11: Fix 3 Skipped Tests (Phase 2)
-Impact: ~0.41% (3 mutants potential)
-Effort: Medium (logic fixes needed)
-Tests: Whitelist filtering, blocked files, instructions masking
-Status: Skipped
-Blockers: Integration issues
-Ticket #12: Line 821 Language Tests
-Impact: +1.24% (9 mutants)
-Effort: Medium (need negative tests)
-Status: Tests exist but don't kill mutants
-Blockers: Need language isolation tests
-📈 Recommended Execution Plan (Option C)
-Phase 4: No-Coverage Mutants (+6.07%, 44 mutants) 🔥🔥🔥
-Why this first:
+## Current Status (After Phase 4)
+**Current Score**: 69.89% (382 killed, 146 survived, 19 no-coverage)
+**Previous Score**: 68.43% (374 killed, 129 survived, 44 no-coverage)
+**Phase 4 Improvement**: +1.46% (+8 killed, -25 no-coverage)
+**Target Score**: ~82% (projected)
+**Remaining Gap**: ~12% (~89 mutants to kill)
 
-Highest single-ticket ROI: +6.07%
-Clear path: Add tests for uncovered lines
-No blockers: Just need to identify and test uncovered code
-Steps:
+## 🎯 Phase 4 Summary
+- ✅ **Blocked files test** (lines 443-446) - 7 mutants targeted
+- ✅ **Custom patterns test** (line 252) - 1 mutant targeted
+- ✅ **Success calculation test** (line 622) - 7 mutants targeted
+- ✅ **Placeholder generation test** (lines 762-767) - 6 mutants targeted
+- **Total**: 21 mutants targeted → 8 actually killed, 25 moved from no-coverage to survived
 
-Identify which lines have no-coverage (44 mutants)
-Add tests to cover those lines
-Verify mutations are killed
-Estimated effort: 2-3 hours
-Expected result: 68.43% → 74.50% 🎯
+**Commits**: 5c83a09, 3f7e1ca, c1c37ce, cf939ab
 
-After Phase 4, continue with:
-Phase 5: EqualityOperator (+2.62%, 19 mutants)
+---
 
-Boundary condition tests
-Moderate effort, clear targets
-Phase 6: MethodExpression (+1.24%, 9 mutants)
+## Mutation Types Breakdown (Updated)
 
-Method call tests
-Low effort, good ROI
-Phase 7: Regex (+0.69%, 5 mutants)
+| Type | Survived | No-Coverage | Total Remaining | Potential Impact |
+|------|----------|-------------|-----------------|------------------|
+| **StringLiteral** | ~50 | ~15 | ~65 | **+8.94%** 🔥🔥 |
+| **ConditionalExpression** | ~35 | ~2 | ~37 | **+5.09%** 🔥 |
+| **EqualityOperator** | ~18 | ~1 | ~19 | **+2.61%** |
+| **BlockStatement** | ~12 | ~5 | ~17 | **+2.34%** |
+| **No-Coverage (remaining)** | 0 | **19** | **19** | **+2.61%** |
+| **MethodExpression** | ~9 | ~0 | ~9 | **+1.24%** |
+| **BooleanLiteral** | ~6 | ~0 | ~6 | **+0.82%** |
+| **ArrayDeclaration** | ~6 | ~0 | ~6 | **+0.82%** |
+| **Regex** | ~5 | ~0 | ~5 | **+0.69%** |
+| **Other** | ~5 | ~1 | ~6 | **+0.82%** |
 
-Pattern matching tests
-Low effort
-Projected total after Phases 4-7: ~77% (close to 82% goal)
+*Note: Exact numbers pending new mutation report analysis*
+
+---
+
+## 🎯 UPDATED BACKLOG TICKETS (Priority Order)
+
+### ⭐ HIGH PRIORITY (Option B - High-Value Targets)
+
+#### Ticket #1: StringLiteral Mutants 🔥🔥
+**Impact**: +8.94% (~65 mutants: ~50 survived + ~15 no-cov)
+**Effort**: High (many string literals in error messages, patterns, etc.)
+**Lines**: Scattered across scanner.ts
+**Status**: Partially done (Phase 3: 1 killed, Phase 4: some moved)
+**Strategy**:
+- Focus on high-value strings (env var names, pattern names)
+- Skip error message strings (low ROI)
+- Test string transformations (uppercase, sanitization)
+
+#### Ticket #2: ConditionalExpression Remaining 🔥
+**Impact**: +5.09% (~37 mutants: ~35 survived + ~2 no-cov)
+**Effort**: Medium-High (defensive checks hard to kill)
+**Lines**: 274, 325, 358, 380, 443, 592, 637-651, etc.
+**Status**: Partially done (Phase 2: 4 killed, Phase 4: some moved)
+**Blockers**: Many are defensive checks (need edge case tests)
+
+#### Ticket #3: EqualityOperator Mutants
+**Impact**: +2.61% (~19 mutants: ~18 survived + ~1 no-cov)
+**Effort**: Medium (boundary condition tests)
+**Lines**: 323, 380, etc. (boundary checks)
+**Status**: Not started
+**Strategy**: Add boundary value tests (0, -1, exact limits)
+
+---
+
+### 🔶 MEDIUM PRIORITY
+
+#### Ticket #4: No-Coverage Remaining (19 mutants)
+**Impact**: +2.61% (19 no-coverage mutants)
+**Effort**: Medium-High (mostly error paths)
+**Lines**: Error handlers (523-527, 559-563, 606-612, etc.)
+**Status**: Phase 4 covered 25 → 19 remaining
+**Blockers**: Need fs error simulation (complex)
+**Remaining targets**:
+- .env.example creation error (lines 523-527)
+- .gitignore update error (lines 559-563)
+- File modification + rollback error (lines 606-612)
+- Unexpected error + rollback (lines 659-668)
+
+#### Ticket #5: BlockStatement Mutants
+**Impact**: +2.34% (~17 mutants: ~12 survived + ~5 no-cov)
+**Effort**: Medium (empty block tests)
+**Lines**: Various try-catch, if blocks
+**Status**: Partially done (1 killed in Phase 2)
+
+---
+
+### 🔵 LOW PRIORITY
+
+#### Ticket #6: MethodExpression Mutants
+**Impact**: +1.24% (~9 mutants)
+**Effort**: Low-Medium
+**Lines**: 463, 495, etc.
+**Status**: Not started
+
+#### Ticket #7: BooleanLiteral Mutants (Phase 3 FAILED)
+**Impact**: +0.82% (~6 mutants)
+**Effort**: High (need AtomicFileWriter mocking)
+**Lines**: 500, 521, 534, 538, 556
+**Status**: Tests exist but don't kill mutants ❌
+**Blockers**: AtomicFileWriter integration issue
+
+#### Ticket #8: ArrayDeclaration Mutants
+**Impact**: +0.82% (~6 mutants)
+**Effort**: Medium
+**Lines**: 295, 821, etc.
+**Status**: Partially done (2 killed in Phase 2)
+
+#### Ticket #9: Regex Mutants
+**Impact**: +0.69% (~5 mutants)
+**Effort**: Low (regex pattern tests)
+**Lines**: 478, 487, etc.
+**Status**: Not started
+
+#### Ticket #10: Other (LogicalOperator, etc.)
+**Impact**: +0.82% (~6 mutants)
+**Effort**: Low-Medium
+**Status**: Not started
+
+---
+
+### 🔧 DEFERRED (Low ROI / Complex)
+
+#### Ticket #11: Fix Skipped Tests (Phase 2 & 4)
+**Impact**: ~0.55% (4 mutants potential)
+**Effort**: Medium (logic fixes needed)
+**Tests**:
+- Phase 2: Whitelist filtering, instructions masking
+- Phase 4: Error-only failure case
+**Status**: Skipped
+**Blockers**: Integration issues
+
+#### Ticket #12: Line 821 Language Tests (FAILED)
+**Impact**: +1.24% (9 mutants)
+**Effort**: Medium (need negative tests)
+**Status**: Tests exist but don't kill mutants ❌
+**Blockers**: Mutations in array declaration, not output
+
+---
+
+## 📈 RECOMMENDED EXECUTION PLAN (Option B)
+
+### Phase 5: EqualityOperator Mutants (+2.61%, ~19 mutants)
+**Why this next:**
+- Clear targets (boundary conditions)
+- Moderate effort
+- Good ROI
+- No blockers
+
+**Steps:**
+1. Identify all EqualityOperator mutants (==, !=, <, >, <=, >=)
+2. Add boundary value tests
+3. Test edge cases (0, -1, empty arrays, etc.)
+
+**Expected result**: 69.89% → 72.50%
+
+---
+
+### Phase 6: StringLiteral High-Value Targets (+4-5%, partial)
+**Focus on:**
+- Environment variable names (generateEnvVarName)
+- Pattern name transformations
+- File extension checks
+- Skip error messages (low ROI)
+
+**Steps:**
+1. Analyze StringLiteral mutants by location
+2. Prioritize functional strings (not error messages)
+3. Add targeted tests
+
+**Expected result**: 72.50% → 76.50%
+
+---
+
+### Phase 7: ConditionalExpression Edge Cases (+2-3%, partial)
+**Focus on:**
+- Empty array checks (lines 637-651)
+- Boundary conditions (line 592)
+- Whitelist filtering (line 358)
+
+**Expected result**: 76.50% → 79%
+
+---
+
+## 🎯 Projected Progress to 82% Goal
+
+| Phase | Score | Killed | Remaining | Gap to Goal |
+|-------|-------|--------|-----------|-------------|
+| Baseline | 66.79% | 367 | - | 15.21% |
+| Phase 1-4 | **69.89%** | **382** | **165** | **12.11%** |
+| Phase 5 (Equality) | 72.50% | 401 | 146 | 9.50% |
+| Phase 6 (StringLit) | 76.50% | 430 | 117 | 5.50% |
+| Phase 7 (Conditional) | 79.00% | 445 | 102 | 3.00% |
+| **Target** | **82.00%** | **~465** | **~82** | **0%** |
+
+**Note**: Reaching exactly 82% may require additional targeted work on remaining mutants.
+
+---
+
+## 📊 Progress Tracking
+
+✅ **Phase 1** (Refactor): +0.73% → 67.52%
+✅ **Phase 2** (File flags): +0.18% → 67.70%
+✅ **Phase 2** (Conditionals): +0.73% → 68.43%
+✅ **Phase 4** (No-coverage): +1.46% → 69.89%
+🎯 **Phase 5** (EqualityOperator): +2.61% → 72.50% (projected)
+🎯 **Phase 6** (StringLiteral): +4.00% → 76.50% (projected)
+🎯 **Phase 7** (Conditional edge): +2.50% → 79.00% (projected)
+
+**Total progress so far**: +3.10% (66.79% → 69.89%)
+**Remaining to goal**: ~12.11% (~89 mutants)
+
+---
+
+## 🔍 Next Immediate Action
+
+**Recommended**: Start Phase 5 - EqualityOperator Mutants
+
+**Tasks**:
+1. Run `node analyze-nocoverage.cjs` to see current no-coverage mutants (19 remaining)
+2. Create `analyze-equality.cjs` to identify EqualityOperator mutants
+3. Add boundary value tests targeting ~19 EqualityOperator mutants
+4. Run mutation test to verify
+
+**Expected effort**: 1-2 hours
+**Expected improvement**: +2.61%
