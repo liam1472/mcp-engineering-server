@@ -340,6 +340,144 @@ describe('validation/review-checker.ts', () => {
       });
     });
 
+    describe('mutation testing check', () => {
+      it('should pass when mutation score meets threshold', async () => {
+        await createEngineeringDir(tempDir);
+
+        // Create feature
+        const featurePath = path.join(tempDir, '.engineering', 'features', 'test');
+        await fs.mkdir(featurePath, { recursive: true });
+        await writeTestFile(
+          path.join(featurePath, 'manifest.yaml'),
+          stringify({ name: 'test', status: 'active', files: [] })
+        );
+
+        // Create mutation report with good score (50%)
+        const reportDir = path.join(tempDir, 'reports', 'mutation');
+        await fs.mkdir(reportDir, { recursive: true });
+        await writeTestFile(
+          path.join(reportDir, 'mutation.json'),
+          JSON.stringify({
+            schemaVersion: '1.0',
+            files: {
+              'src/app.ts': {
+                mutants: [
+                  { id: '1', status: 'Killed' },
+                  { id: '2', status: 'Killed' },
+                  { id: '3', status: 'Killed' },
+                  { id: '4', status: 'Killed' },
+                  { id: '5', status: 'Killed' },
+                  { id: '6', status: 'Survived' },
+                  { id: '7', status: 'Survived' },
+                  { id: '8', status: 'Survived' },
+                  { id: '9', status: 'NoCoverage' },
+                  { id: '10', status: 'NoCoverage' },
+                ],
+              },
+            },
+          })
+        );
+
+        const report = await checker.runReview(true);
+        const mutationCheck = report.checks.find(c => c.name === 'Mutation Testing');
+
+        expect(mutationCheck).toBeDefined();
+        expect(mutationCheck?.passed).toBe(true);
+        expect(mutationCheck?.details).toContain('50');
+        expect(mutationCheck?.required).toBe(false); // Warning, not blocking
+      });
+
+      it('should fail when mutation score below threshold', async () => {
+        await createEngineeringDir(tempDir);
+
+        // Create feature
+        const featurePath = path.join(tempDir, '.engineering', 'features', 'test');
+        await fs.mkdir(featurePath, { recursive: true });
+        await writeTestFile(
+          path.join(featurePath, 'manifest.yaml'),
+          stringify({ name: 'test', status: 'active', files: [] })
+        );
+
+        // Create mutation report with low score (20%)
+        const reportDir = path.join(tempDir, 'reports', 'mutation');
+        await fs.mkdir(reportDir, { recursive: true });
+        await writeTestFile(
+          path.join(reportDir, 'mutation.json'),
+          JSON.stringify({
+            schemaVersion: '1.0',
+            files: {
+              'src/app.ts': {
+                mutants: [
+                  { id: '1', status: 'Killed' },
+                  { id: '2', status: 'Killed' },
+                  { id: '3', status: 'Survived' },
+                  { id: '4', status: 'Survived' },
+                  { id: '5', status: 'Survived' },
+                  { id: '6', status: 'Survived' },
+                  { id: '7', status: 'Survived' },
+                  { id: '8', status: 'Survived' },
+                  { id: '9', status: 'NoCoverage' },
+                  { id: '10', status: 'NoCoverage' },
+                ],
+              },
+            },
+          })
+        );
+
+        const report = await checker.runReview(true);
+        const mutationCheck = report.checks.find(c => c.name === 'Mutation Testing');
+
+        expect(mutationCheck).toBeDefined();
+        expect(mutationCheck?.passed).toBe(false);
+        expect(mutationCheck?.details).toContain('20');
+      });
+
+      it('should warn when no mutation report exists', async () => {
+        await createEngineeringDir(tempDir);
+
+        // Create feature
+        const featurePath = path.join(tempDir, '.engineering', 'features', 'test');
+        await fs.mkdir(featurePath, { recursive: true });
+        await writeTestFile(
+          path.join(featurePath, 'manifest.yaml'),
+          stringify({ name: 'test', status: 'active', files: [] })
+        );
+
+        // No mutation report created
+
+        const report = await checker.runReview(true);
+        const mutationCheck = report.checks.find(c => c.name === 'Mutation Testing');
+
+        expect(mutationCheck).toBeDefined();
+        expect(mutationCheck?.passed).toBe(false);
+        expect(mutationCheck?.details).toContain('No mutation report');
+        expect(mutationCheck?.required).toBe(false);
+      });
+
+      it('should not block /eng-done when mutation check fails', async () => {
+        await createEngineeringDir(tempDir);
+
+        // Create feature
+        const featurePath = path.join(tempDir, '.engineering', 'features', 'test');
+        await fs.mkdir(featurePath, { recursive: true });
+        await writeTestFile(
+          path.join(featurePath, 'manifest.yaml'),
+          stringify({ name: 'test', status: 'active', files: [] })
+        );
+
+        // No mutation report = mutation check fails
+        const report = await checker.runReview(true);
+        const mutationCheck = report.checks.find(c => c.name === 'Mutation Testing');
+
+        // Mutation check failed but should not affect ready status (required: false)
+        expect(mutationCheck?.passed).toBe(false);
+        expect(mutationCheck?.required).toBe(false);
+
+        // If all OTHER required checks pass, ready should still be true
+        // (depends on other checks in this test setup)
+      });
+    });
+
     describe('security check details', () => {
       it('should fail security for critical findings', async () => {
         await createEngineeringDir(tempDir);

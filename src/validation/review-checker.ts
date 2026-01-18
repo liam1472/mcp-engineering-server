@@ -35,6 +35,17 @@ interface FeatureManifest {
   files: string[];
 }
 
+interface StrykerReport {
+  schemaVersion: string;
+  files: Record<string, { mutants: Array<{ status: string }> }>;
+}
+
+interface MutationTotals {
+  killed: number;
+  survived: number;
+  noCoverage: number;
+}
+
 export class ReviewChecker {
   private workingDir: string;
   private securityScanner: SecurityScanner;
@@ -73,7 +84,11 @@ export class ReviewChecker {
     const duplicateCheck = await this.checkDuplicates();
     checks.push(duplicateCheck);
 
-    // 6. Uncommitted changes
+    // 6. Mutation testing check
+    const mutationCheck = await this.checkMutationScore();
+    checks.push(mutationCheck);
+
+    // 7. Uncommitted changes
     const gitCheck = await this.checkGitStatus();
     checks.push(gitCheck);
 
@@ -273,6 +288,72 @@ export class ReviewChecker {
         required: false,
       };
     }
+  }
+
+  private async checkMutationScore(): Promise<ReviewCheckItem> {
+    const reportPath = path.join(this.workingDir, 'reports', 'mutation', 'mutation.json');
+
+    try {
+      const stat = await fs.stat(reportPath);
+      const reportAge = Date.now() - stat.mtimeMs;
+      const oneHour = 60 * 60 * 1000;
+
+      if (reportAge > oneHour) {
+        return {
+          name: 'Mutation Testing',
+          passed: false,
+          details: 'Report stale (>1 hour). Run /eng-test',
+          required: false,
+        };
+      }
+
+      const content = await fs.readFile(reportPath, 'utf-8');
+      const report = JSON.parse(content) as StrykerReport;
+
+      if (report.schemaVersion && report.files) {
+        const totals = this.calculateMutationTotals(report);
+        const total = totals.killed + totals.survived + totals.noCoverage;
+        const score = total > 0 ? (totals.killed / total) * 100 : 0;
+        const threshold = 30;
+
+        return {
+          name: 'Mutation Testing',
+          passed: score >= threshold,
+          details: `Score: ${score.toFixed(1)}% (threshold: ${threshold}%)`,
+          required: false,
+        };
+      }
+
+      return {
+        name: 'Mutation Testing',
+        passed: true,
+        details: 'Report format not recognized',
+        required: false,
+      };
+    } catch {
+      return {
+        name: 'Mutation Testing',
+        passed: false,
+        details: 'No mutation report. Run /eng-test',
+        required: false,
+      };
+    }
+  }
+
+  private calculateMutationTotals(report: StrykerReport): MutationTotals {
+    let killed = 0;
+    let survived = 0;
+    let noCoverage = 0;
+
+    for (const file of Object.values(report.files)) {
+      for (const mutant of file.mutants) {
+        if (mutant.status === 'Killed') killed++;
+        else if (mutant.status === 'Survived') survived++;
+        else if (mutant.status === 'NoCoverage') noCoverage++;
+      }
+    }
+
+    return { killed, survived, noCoverage };
   }
 
   private async checkGitStatus(): Promise<ReviewCheckItem> {

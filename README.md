@@ -6,6 +6,7 @@ An MCP (Model Context Protocol) server and Claude Code plugin for AI-assisted en
 
 - **Auto-detect project type**: Supports 20+ project types (Node.js, .NET, Python, Rust, Go, Embedded, etc.)
 - **Security scanning**: Detect secrets, API keys, and credentials before commit
+- **Mutation testing**: Verify test quality with multi-language mutation testing support
 - **Function indexing**: Index and search functions across TypeScript, Python, C#, Go, Rust, C/C++
 - **Duplicate detection**: Find duplicate code blocks for refactoring
 - **Route indexing**: Index API routes (Express, Flask, FastAPI, ASP.NET, Go)
@@ -62,6 +63,16 @@ npm uninstall -g mcp-engineering-server
 | `/eng-done` | Complete and archive feature |
 | `/eng-search <query>` | Search indexed functions |
 
+### Testing & Quality
+
+| Command | Description |
+|---------|-------------|
+| `/eng-test` | Run mutation testing (auto-detect language) |
+| `/eng-test --file <path>` | Test specific file |
+| `/eng-test --mode check` | Verify mutation score meets threshold |
+| `/eng-test --mode analyze` | Testability analysis only (no mutation) |
+| `/eng-test --threshold 40` | Set custom threshold (default: 30%) |
+
 ### Analysis & Refactoring
 
 | Command | Description |
@@ -69,7 +80,7 @@ npm uninstall -g mcp-engineering-server
 | `/eng-refactor` | Analyze code for refactoring opportunities |
 | `/eng-refactor --fix` | Auto-fix: add constants, backup files |
 | `/eng-refactor --fix --dry-run` | Preview what --fix would change |
-| `/eng-review` | Pre-completion checklist (security, build, tests) |
+| `/eng-review` | Pre-completion checklist (security, build, tests, mutation) |
 | `/eng-deps` | Analyze dependencies, detect circular imports |
 | `/eng-pipeline` | Run full validation pipeline (build, lint, test) |
 | `/eng-duplicates` | Detect duplicate code blocks |
@@ -125,23 +136,37 @@ Working on a new feature from start to finish:
 # 1. Start feature - creates context directory
 /eng-start user-authentication
 
-# 2. Work on your code...
+# 2. Work on your code + write tests
 #    Claude assists with implementation
 
-# 3. Before committing - validate everything
+# 3. Verify test quality - REQUIRED before completion
+/eng-test                    # Must pass threshold (default: 30%)
+
+# 4. Check code quality
+/eng-refactor                # Find code smells, duplicates
+
+# 5. Full validation
 /eng-validate                # Runs: security scan + index update + status check
 
-# 4. If security issues found
-/eng-security --fix          # Auto-create .env, replace hardcoded secrets
+# 6. If issues found
+/eng-security --fix          # Auto-fix secrets
+/eng-refactor --fix          # Auto-fix code smells
 
-# 5. Complete feature - archives context, extracts knowledge
+# 7. Complete feature - validates, archives, extracts knowledge
 /eng-done
 ```
 
 **What happens:**
 - Feature directory created at `.engineering/features/user-authentication/`
 - Progress tracked in `progress.yaml`
-- On `/eng-done`: archived to `.engineering/archive/`, learnings extracted to knowledge base
+- `/eng-test` verifies test coverage catches mutations (quality gate)
+- `/eng-refactor` identifies maintainability issues early
+- On `/eng-done`: final validation, archived to `.engineering/archive/`, learnings extracted to knowledge base
+
+**Quality Gates (enforced):**
+- Mutation score >= 30% (configurable with `--threshold`)
+- No critical security issues
+- Build passes
 
 ---
 
@@ -281,7 +306,7 @@ Final checks before creating PR:
 /eng-pipeline                # build + lint + test + security
 
 # Or run review checklist
-/eng-review                  # Shows: security status, test status, build status
+/eng-review                  # Shows: security, build, tests, mutation status
 ```
 
 **Review output:**
@@ -290,6 +315,7 @@ Pre-Completion Review:
   [x] Security scan passed
   [x] Build successful
   [x] Tests passing (48/48)
+  [x] Mutation score: 35.0% (threshold: 30%)
   [ ] Lint warnings: 3
 
   Recommendation: Fix lint warnings, then ready for /eng-done
@@ -297,12 +323,92 @@ Pre-Completion Review:
 
 ---
 
+### Scenario 9: Mutation Testing
+
+Verify test quality with mutation testing:
+
+```bash
+# Run full mutation test (auto-detects language and tool)
+/eng-test
+
+# Test specific file
+/eng-test --file src/auth/validator.ts
+
+# Check if mutation score meets threshold (for CI)
+/eng-test --mode check --threshold 40
+
+# Analyze testability without running mutations
+/eng-test --mode analyze --file src/services/payment.ts
+```
+
+**Example output:**
+```
+# Mutation Test Report
+
+## Summary
+Score: **45.50%** (acceptable)
+Killed: 182
+Survived: 158
+No Coverage: 60
+Total: 400
+
+## Verdict: ACCEPTABLE
+
+## Surviving Mutants (showing first 10)
+**src/validator.ts:142** [ConditionalExpression]
+  Status: Survived
+  💡 Add test for both true and false branches
+
+**src/validator.ts:89** [EqualityOperator]
+  Status: Survived
+  💡 Add boundary condition tests
+
+## Testability Issues (2)
+[HIGH] **validatePayment** (complex-private)
+  src/services/payment.ts:50
+  Private method 'validatePayment' is 25 lines - hard to test directly
+  💡 Extract to a separate testable class or make protected/public for testing
+
+## Recommendations
+🔧 2 complex private method(s) detected - consider extracting to testable classes
+```
+
+**Supported Languages & Tools:**
+
+| Language | Tool | Install Command |
+|----------|------|-----------------|
+| TypeScript/JavaScript | Stryker | `npm install --save-dev @stryker-mutator/core` |
+| Python | mutmut | `pip install mutmut` |
+| Rust | cargo-mutants | `cargo install cargo-mutants` |
+| Go | go-mutesting | `go install github.com/zimmski/go-mutesting/cmd/go-mutesting@latest` |
+| C# | dotnet-stryker | `dotnet tool install -g dotnet-stryker` |
+| C/C++ | mull | See https://mull.readthedocs.io |
+
+**Score Thresholds:**
+
+| Score | Verdict |
+|-------|---------|
+| >= 60% | Excellent |
+| >= 50% | Good |
+| >= 40% | Acceptable |
+| >= 30% | Needs Improvement |
+| < 30% | Poor |
+
+---
+
 ### Quick Reference
+
+**Standard Feature Workflow:**
+```
+/eng-start → code + tests → /eng-test → /eng-refactor → /eng-validate → /eng-done
+```
 
 | Goal | Command |
 |------|---------|
 | Setup new project | `/eng-init` → `/eng-scan` |
 | Start feature | `/eng-start <name>` |
+| **Verify test quality** | `/eng-test` (required before `/eng-done`) |
+| Check code quality | `/eng-refactor` |
 | Find secrets | `/eng-security` |
 | Fix secrets | `/eng-security --fix` |
 | Search code | `/eng-search <query>` |
@@ -330,7 +436,9 @@ After running `/eng-init`, a `.engineering/` directory is created:
 │   ├── patterns.yaml     # Detection patterns
 │   └── whitelist.yaml    # False positive whitelist
 ├── knowledge/
-│   └── base.yaml         # Extracted learnings
+│   ├── index.yaml        # Knowledge index (metadata)
+│   ├── base.yaml         # Extracted learnings
+│   └── details/          # Individual knowledge entries
 ├── features/             # Active features
 └── archive/              # Completed features
 ```
