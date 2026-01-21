@@ -412,19 +412,20 @@ export class RefactorAnalyzer {
     }
 
     for (const [file, numbers] of magicByFile) {
-      if (numbers.length >= 3) {
-        suggestions.push({
-          type: 'extract-constant',
-          priority: numbers.length >= 5 ? 'medium' : 'low',
-          title: `Extract magic numbers in ${path.basename(file)}`,
-          description: `Found ${numbers.length} magic numbers. Consider defining as named constants:\n${numbers
-            .slice(0, 3)
-            .map(n => `  Line ${n.line}: ${n.value}`)
-            .join('\n')}`,
-          files: [file],
-          estimatedImpact: 'Improved code readability and maintainability',
-        });
-      }
+      // Create suggestion for each file with magic numbers (no threshold)
+      // Priority: high for 5+, medium for 2-4, low for 1
+      const priority = numbers.length >= 5 ? 'high' : numbers.length >= 2 ? 'medium' : 'low';
+      suggestions.push({
+        type: 'extract-constant',
+        priority,
+        title: `Extract magic numbers in ${path.basename(file)}`,
+        description: `Found ${numbers.length} magic number(s). Consider defining as named constants:\n${numbers
+          .slice(0, 5)
+          .map(n => `  Line ${n.line}: ${n.value}`)
+          .join('\n')}`,
+        files: [file],
+        estimatedImpact: 'Improved code readability and maintainability',
+      });
     }
 
     // Suggestions from long functions

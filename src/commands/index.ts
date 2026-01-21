@@ -411,5 +411,33 @@ export function registerCommands(): Tool[] {
         required: ['code'],
       },
     },
+
+    // Testing Commands
+    {
+      name: 'eng_test',
+      description:
+        'Run mutation testing to verify test quality. Reports raw mutation score without rationalization.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          file: {
+            type: 'string',
+            description: 'Target specific file for mutation testing',
+          },
+          threshold: {
+            type: 'number',
+            description: 'Minimum acceptable mutation score (default: 30)',
+            default: 30,
+          },
+          mode: {
+            type: 'string',
+            enum: ['run', 'check', 'analyze'],
+            description:
+              'run: Full mutation test, check: Verify threshold, analyze: Testability analysis only',
+            default: 'run',
+          },
+        },
+      },
+    },
   ];
 }

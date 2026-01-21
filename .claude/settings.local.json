@@ -20,7 +20,9 @@
       "Bash(git push:*)",
       "Bash(git stash:*)",
       "Bash(npm run test:specs:*)",
-      "Bash(ls:*)"
+      "Bash(ls:*)",
+      "Bash(wc:*)",
+      "Bash(find:*)"
     ]
   }
 }

@@ -217,6 +217,7 @@ import { RefactorAnalyzer } from './indexes/refactor-analyzer.js';
 import { SimilarityAnalyzer } from './indexes/similarity.js';
 import { ValidationPipeline } from './validation/pipeline.js';
 import { ReviewChecker } from './validation/review-checker.js';
+import { MutationRunner } from './testing/mutation-runner.js';
 import { FeatureManager } from './features/manager.js';
 import { ContextManager } from './sessions/context-manager.js';
 import { SessionCoordinator } from './sessions/coordinator.js';
@@ -246,6 +247,7 @@ const refactorAnalyzer = new RefactorAnalyzer();
 const similarityAnalyzer = new SimilarityAnalyzer();
 const validationPipeline = new ValidationPipeline();
 const reviewChecker = new ReviewChecker();
+const mutationRunner = new MutationRunner();
 const featureManager = new FeatureManager();
 const contextManager = new ContextManager();
 const sessionCoordinator = new SessionCoordinator();
@@ -629,6 +631,31 @@ server.setRequestHandler(CallToolRequestSchema, async request => {
           };
         }
 
+        // Check if mutation test was run (look for recent Stryker report)
+        const reportPath = path.join(process.cwd(), 'reports', 'mutation', 'mutation.json');
+        let mutationWarning = '';
+        try {
+          const stat = await fs.stat(reportPath);
+          const reportAge = Date.now() - stat.mtimeMs;
+          const oneHour = 60 * 60 * 1000;
+
+          if (reportAge > oneHour) {
+            mutationWarning =
+              '\n⚠️  Warning: Mutation test report is stale (>1 hour old). Consider running /eng-test before completing.';
+          } else {
+            // Check score from report
+            const reportContent = await fs.readFile(reportPath, 'utf-8');
+            const report = JSON.parse(reportContent) as { schemaVersion?: string; thresholds?: { high?: number; low?: number; break?: number }; files?: Record<string, unknown> };
+            if (report.schemaVersion) {
+              // Valid Stryker report - could extract score here for enforcement
+              // For now, just acknowledge the test was run
+            }
+          }
+        } catch {
+          mutationWarning =
+            '\n⚠️  Warning: No mutation test found. Run /eng-test to verify test quality before completing.';
+        }
+
         const { archivePath, knowledgeExtracted } =
           await featureManager.completeFeature(activeFeature);
 
@@ -646,6 +673,7 @@ server.setRequestHandler(CallToolRequestSchema, async request => {
           resultText += `\nSaved to: .engineering/knowledge/base.yaml`;
         }
 
+        resultText += mutationWarning;
         resultText += `\n\nReady to start a new feature with eng_start.`;
 
         return {
@@ -1369,6 +1397,142 @@ server.setRequestHandler(CallToolRequestSchema, async request => {
       } catch (error) {
         return {
           content: [{ type: 'text', text: `Similarity search failed: ${String(error)}` }],
+          isError: true,
+        };
+      }
+    }
+
+    case 'eng_test': {
+      try {
+        const testArgs = args as
+          | { file?: string; threshold?: number; mode?: 'run' | 'check' | 'analyze' }
+          | undefined;
+        const mode = testArgs?.mode ?? 'run';
+        const file = testArgs?.file;
+        const threshold = testArgs?.threshold ?? 30;
+
+        let output = '';
+
+        if (mode === 'analyze') {
+          // Testability analysis only (no Stryker)
+          if (!file) {
+            return {
+              content: [
+                { type: 'text', text: 'Please specify a file for testability analysis: --file <path>' },
+              ],
+              isError: true,
+            };
+          }
+
+          const report = await mutationRunner.run({ file, threshold });
+          output = `# Testability Analysis: ${file}\n\n`;
+
+          if (report.testabilityIssues.length === 0) {
+            output += '✓ No testability issues detected\n';
+          } else {
+            output += `Found ${report.testabilityIssues.length} testability issue(s):\n\n`;
+            for (const issue of report.testabilityIssues) {
+              output += `[${issue.severity.toUpperCase()}] ${issue.type}\n`;
+              output += `  File: ${issue.file}:${issue.line}\n`;
+              output += `  ${issue.description}\n`;
+              output += `  💡 ${issue.suggestion}\n\n`;
+            }
+          }
+
+          if (report.recommendations.length > 0) {
+            output += '\n## Recommendations\n';
+            for (const rec of report.recommendations) {
+              output += `${rec}\n`;
+            }
+          }
+        } else if (mode === 'check') {
+          // Threshold check only
+          const result = await mutationRunner.check({ file, threshold });
+          output = result.message + '\n\n';
+          output += `Score: ${result.score.toFixed(2)}%\n`;
+          output += `Threshold: ${result.threshold}%\n`;
+          output += `Status: ${result.passed ? 'PASSED ✓' : 'FAILED ✗'}`;
+        } else {
+          // Full mutation testing
+          output = '# Mutation Test Report\n\n';
+          output += '⏳ Running Stryker mutation testing...\n';
+          output += 'This may take several minutes.\n\n';
+
+          const report = await mutationRunner.run({ file, threshold });
+
+          output = '# Mutation Test Report\n\n';
+          output += `## Summary\n`;
+          output += `Score: **${report.summary.score.toFixed(2)}%** (${report.summary.verdict})\n`;
+          output += `Killed: ${report.summary.killed}\n`;
+          output += `Survived: ${report.summary.survived}\n`;
+          output += `No Coverage: ${report.summary.noCoverage}\n`;
+          output += `Total: ${report.summary.total}\n`;
+          output += `Duration: ${(report.summary.duration / 1000).toFixed(1)}s\n\n`;
+
+          // Verdict explanation
+          output += `## Verdict: ${report.summary.verdict.toUpperCase()}\n`;
+          switch (report.summary.verdict) {
+            case 'excellent':
+              output += '✅ Excellent mutation coverage!\n';
+              break;
+            case 'good':
+              output += '✓ Good mutation coverage.\n';
+              break;
+            case 'acceptable':
+              output += '⚠️ Acceptable, but could be improved.\n';
+              break;
+            case 'needs-improvement':
+              output += '⚠️ Needs improvement - add more targeted tests.\n';
+              break;
+            case 'poor':
+              output += '❌ Poor coverage - prioritize adding tests.\n';
+              break;
+          }
+          output += '\n';
+
+          // Surviving mutants (limited)
+          if (report.survivingMutants.length > 0) {
+            output += `## Surviving Mutants (showing first 10)\n`;
+            for (const mutant of report.survivingMutants.slice(0, 10)) {
+              output += `\n**${mutant.file}:${mutant.line}** [${mutant.mutator}]\n`;
+              output += `  Status: ${mutant.status}\n`;
+              if (mutant.suggestion) {
+                output += `  💡 ${mutant.suggestion}\n`;
+              }
+            }
+            if (report.survivingMutants.length > 10) {
+              output += `\n...and ${report.survivingMutants.length - 10} more\n`;
+            }
+            output += '\n';
+          }
+
+          // Testability issues
+          if (report.testabilityIssues.length > 0) {
+            output += `## Testability Issues (${report.testabilityIssues.length})\n`;
+            for (const issue of report.testabilityIssues.slice(0, 5)) {
+              output += `\n[${issue.severity.toUpperCase()}] **${issue.name}** (${issue.type})\n`;
+              output += `  ${issue.file}:${issue.line}\n`;
+              output += `  ${issue.description}\n`;
+              output += `  💡 ${issue.suggestion}\n`;
+            }
+            output += '\n';
+          }
+
+          // Recommendations
+          if (report.recommendations.length > 0) {
+            output += `## Recommendations\n`;
+            for (const rec of report.recommendations) {
+              output += `${rec}\n`;
+            }
+          }
+        }
+
+        return {
+          content: [{ type: 'text', text: output }],
+        };
+      } catch (error) {
+        return {
+          content: [{ type: 'text', text: `Mutation testing failed: ${String(error)}` }],
           isError: true,
         };
       }

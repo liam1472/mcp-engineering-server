@@ -418,6 +418,7 @@ describe('knowledge/extractor.ts - Split Storage', () => {
     });
 
     it('should generate safe filename from title', async () => {
+      const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
       const entries: KnowledgeEntry[] = [
         {
           id: 'k_filename_1',
@@ -425,7 +426,7 @@ describe('knowledge/extractor.ts - Split Storage', () => {
           title: 'Fix: Memory Leak in API Handler!!!',
           content: 'Content.',
           tags: [],
-          source: { feature: 'fix', files: [], date: '2026-01-17T10:00:00.000Z' },
+          source: { feature: 'fix', files: [], date: new Date().toISOString() },
         },
       ];
 
@@ -435,7 +436,7 @@ describe('knowledge/extractor.ts - Split Storage', () => {
       const files = await fs.readdir(detailsDir);
 
       // Should be sanitized: lowercase, no special chars
-      expect(files[0]).toMatch(/^2026-01-17_fix-memory-leak/);
+      expect(files[0]).toMatch(new RegExp(`^${today}_fix-memory-leak`));
       expect(files[0]).not.toContain('!');
       expect(files[0]).not.toContain(':');
     });
