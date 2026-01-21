@@ -26,24 +26,12 @@ describe('commands/index.ts', () => {
       expect(names).toContain('eng_done');
     });
 
-    it('should include session commands', () => {
+    it('should include checkpoint/resume commands', () => {
       const tools = registerCommands();
       const names = tools.map(t => t.name);
 
       expect(names).toContain('eng_session_checkpoint');
       expect(names).toContain('eng_session_resume');
-      expect(names).toContain('eng_session_start');
-      expect(names).toContain('eng_session_status');
-      expect(names).toContain('eng_session_switch');
-      expect(names).toContain('eng_session_sync');
-    });
-
-    it('should include lock commands', () => {
-      const tools = registerCommands();
-      const names = tools.map(t => t.name);
-
-      expect(names).toContain('eng_lock');
-      expect(names).toContain('eng_unlock');
     });
 
     it('should include index commands', () => {
@@ -92,15 +80,6 @@ describe('commands/index.ts', () => {
         expect(engStart?.inputSchema.required).toContain('feature');
       });
 
-      it('eng_session_start should require id with enum values', () => {
-        const tools = registerCommands();
-        const sessionStart = tools.find(t => t.name === 'eng_session_start');
-
-        expect(sessionStart?.inputSchema.properties?.id).toBeDefined();
-        expect(sessionStart?.inputSchema.properties?.id?.enum).toEqual(['A', 'B', 'C']);
-        expect(sessionStart?.inputSchema.required).toContain('id');
-      });
-
       it('eng_search should require query parameter', () => {
         const tools = registerCommands();
         const search = tools.find(t => t.name === 'eng_search');
@@ -125,14 +104,6 @@ describe('commands/index.ts', () => {
         expect(refactor?.inputSchema.properties).toHaveProperty('fix');
         expect(refactor?.inputSchema.properties).toHaveProperty('dryRun');
         expect(refactor?.inputSchema.properties).toHaveProperty('force');
-      });
-
-      it('eng_lock should require file parameter', () => {
-        const tools = registerCommands();
-        const lock = tools.find(t => t.name === 'eng_lock');
-
-        expect(lock?.inputSchema.properties).toHaveProperty('file');
-        expect(lock?.inputSchema.required).toContain('file');
       });
 
       it('eng_index_similar should require code parameter', () => {
