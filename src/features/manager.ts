@@ -208,4 +208,39 @@ export class FeatureManager {
       return null;
     }
   }
+
+  /**
+   * Read PLAN.md content for a feature
+   * Returns null if no plan exists
+   */
+  async getPlan(featureName: string): Promise<string | null> {
+    const planPath = path.join(this.featuresDir, featureName, 'PLAN.md');
+
+    try {
+      const content = await fs.readFile(planPath, 'utf-8');
+      return content;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Get full context for a feature (plan + related knowledge)
+   * Used by eng_start for context injection
+   */
+  async getFeatureContext(featureName: string): Promise<{
+    plan: string | null;
+    knowledge: KnowledgeEntry[];
+    manifesto: string | null;
+  }> {
+    const plan = await this.getPlan(featureName);
+    const manifesto = await this.getManifesto();
+    const knowledge = await this.knowledgeExtractor.searchKnowledge(featureName);
+
+    return {
+      plan,
+      knowledge,
+      manifesto,
+    };
+  }
 }

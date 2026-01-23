@@ -73,6 +73,20 @@ export interface ApplyRefactorResult {
   summary: string;
 }
 
+export interface GarbageResult {
+  files: string[];
+  totalSize: number;
+  summary: string;
+}
+
+export interface CleanResult {
+  found: string[];
+  deleted: string[];
+  wouldDelete: string[];
+  errors: string[];
+  summary: string;
+}
+
 interface MagicNumber {
   file: string;
   line: number;
@@ -104,6 +118,18 @@ const ALLOWED_NUMBERS = new Set([
   '4096',
 ]);
 const LONG_FUNCTION_THRESHOLD = 50;
+
+// Garbage file patterns (AI debug scripts, temp files, etc.)
+const GARBAGE_PATTERNS = [
+  'analyze-*.cjs',
+  'debug-*.cjs',
+  '*.log',
+  '*.tmp',
+  'PHASE-*.md',
+  '*-ANALYSIS.md',
+  'mutation-*.txt',
+  'nul',
+];
 
 // Patterns that should NOT be extracted as functions
 const NON_EXTRACTABLE_PATTERNS = [
@@ -1113,5 +1139,121 @@ export class RefactorAnalyzer {
       // Silently fail if we can't write to manifesto
       console.error('Failed to append to manifesto:', error);
     }
+  }
+
+  /**
+   * Detect garbage files (AI debug scripts, temp files, etc.)
+   */
+  async detectGarbage(): Promise<GarbageResult> {
+    const files: string[] = [];
+    let totalSize = 0;
+
+    for (const pattern of GARBAGE_PATTERNS) {
+      try {
+        const matches = await glob(pattern, {
+          cwd: this.workingDir,
+          nodir: true,
+          ignore: ['**/node_modules/**', '**/dist/**', '**/build/**', '**/.git/**'],
+        });
+
+        for (const file of matches) {
+          files.push(file);
+          try {
+            const fullPath = path.join(this.workingDir, file);
+            const stat = await fs.stat(fullPath);
+            totalSize += stat.size;
+          } catch {
+            // File might be deleted between glob and stat
+          }
+        }
+      } catch {
+        // Glob might fail for some patterns on some systems
+      }
+    }
+
+    // Remove duplicates
+    const uniqueFiles = [...new Set(files)];
+
+    const summary = uniqueFiles.length > 0
+      ? `Found ${uniqueFiles.length} garbage file(s) (${this.formatSize(totalSize)})`
+      : 'No garbage files found';
+
+    return {
+      files: uniqueFiles,
+      totalSize,
+      summary,
+    };
+  }
+
+  /**
+   * Clean garbage files
+   */
+  async cleanGarbage(options: {
+    fix?: boolean;
+    dryRun?: boolean;
+  } = {}): Promise<CleanResult> {
+    const { fix = false, dryRun = false } = options;
+
+    const detection = await this.detectGarbage();
+    const found = detection.files;
+    const deleted: string[] = [];
+    const wouldDelete: string[] = [];
+    const errors: string[] = [];
+
+    if (!fix) {
+      // Just return the list
+      return {
+        found,
+        deleted: [],
+        wouldDelete: [],
+        errors: [],
+        summary: detection.summary,
+      };
+    }
+
+    for (const file of found) {
+      const fullPath = path.join(this.workingDir, file);
+
+      if (dryRun) {
+        wouldDelete.push(file);
+      } else {
+        try {
+          await fs.unlink(fullPath);
+          deleted.push(file);
+        } catch (err) {
+          errors.push(`Failed to delete ${file}: ${String(err)}`);
+        }
+      }
+    }
+
+    let summary: string;
+    if (dryRun) {
+      summary = `Would delete ${wouldDelete.length} file(s)`;
+    } else if (deleted.length > 0) {
+      summary = `Deleted ${deleted.length} garbage file(s)`;
+    } else {
+      summary = 'No files deleted';
+    }
+
+    if (errors.length > 0) {
+      summary += ` (${errors.length} error(s))`;
+    }
+
+    return {
+      found,
+      deleted,
+      wouldDelete,
+      errors,
+      summary,
+    };
+  }
+
+  /**
+   * Format file size for display
+   */
+  private formatSize(bytes: number): string {
+    if (bytes < 1024) return `${bytes} B`;
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
   }
 }

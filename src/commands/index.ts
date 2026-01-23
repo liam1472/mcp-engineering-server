@@ -100,7 +100,13 @@ export function registerCommands(): Tool[] {
         'Complete current feature. Runs final validation, extracts knowledge, archives feature.',
       inputSchema: {
         type: 'object',
-        properties: {},
+        properties: {
+          promote: {
+            type: 'boolean',
+            description: 'Promote extracted knowledge to global knowledge base (~/.mcp-engineering/)',
+            default: false,
+          },
+        },
       },
     },
 
@@ -284,6 +290,12 @@ export function registerCommands(): Tool[] {
               'Learn from refactoring: extract anti-patterns and append as rules to manifesto.md',
             default: false,
           },
+          clean: {
+            type: 'boolean',
+            description:
+              'Detect and optionally delete garbage files (AI debug scripts, temp files, logs)',
+            default: false,
+          },
         },
       },
     },
@@ -359,6 +371,144 @@ export function registerCommands(): Tool[] {
             description:
               'run: Full mutation test, check: Verify threshold, analyze: Testability analysis only',
             default: 'run',
+          },
+        },
+      },
+    },
+    {
+      name: 'eng_unittest',
+      description:
+        'Run fast unit tests for TDD loop. Auto-detects test framework (vitest, jest, pytest, cargo, go).',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          file: {
+            type: 'string',
+            description: 'Target specific file for testing',
+          },
+          watch: {
+            type: 'boolean',
+            description: 'Enable watch mode for continuous testing',
+            default: false,
+          },
+        },
+      },
+    },
+
+    // Debugging Commands
+    {
+      name: 'eng_debug',
+      description:
+        'Analyze log files using streaming. Supports pattern filtering, tail, and handles large files efficiently.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          file: {
+            type: 'string',
+            description: 'Path to log file to analyze',
+          },
+          pattern: {
+            type: 'string',
+            description: 'Filter lines matching this pattern (supports regex)',
+          },
+          tail: {
+            type: 'number',
+            description: 'Number of lines to show from end (default: 100)',
+            default: 100,
+          },
+          ignoreCase: {
+            type: 'boolean',
+            description: 'Case-insensitive pattern matching',
+            default: false,
+          },
+        },
+        required: ['file'],
+      },
+    },
+
+    // Planning Commands
+    {
+      name: 'eng_plan',
+      description:
+        'Create a planning document for a feature. Injects related knowledge and manifesto rules.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          feature: {
+            type: 'string',
+            description: 'Name of the feature to plan (must exist via eng_start)',
+          },
+          injectKnowledge: {
+            type: 'boolean',
+            description: 'Search and inject related knowledge entries',
+            default: true,
+          },
+          injectManifesto: {
+            type: 'boolean',
+            description: 'Inject manifesto rules into plan',
+            default: true,
+          },
+          description: {
+            type: 'string',
+            description: 'Optional description of the feature objective',
+          },
+        },
+        required: ['feature'],
+      },
+    },
+
+    // Embedded Linux Commands
+    {
+      name: 'eng_dts',
+      description:
+        'Device Tree Specialist. Scan, validate, and analyze device tree (.dts/.dtsi) files for embedded Linux projects.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          scan: {
+            type: 'boolean',
+            description: 'Scan and index all .dts/.dtsi files',
+            default: false,
+          },
+          check: {
+            type: 'string',
+            description: 'Validate node reference exists (e.g., "&i2c3")',
+          },
+          conflicts: {
+            type: 'boolean',
+            description: 'Detect pin muxing conflicts between enabled nodes',
+            default: false,
+          },
+          available: {
+            type: 'string',
+            description: 'List available nodes of a type (e.g., "i2c", "spi", "uart")',
+          },
+        },
+      },
+    },
+
+    // Architecture Commands
+    {
+      name: 'eng_arch',
+      description:
+        'Architecture Enforcer. Define and enforce architectural layer dependencies.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          init: {
+            type: 'boolean',
+            description: 'Create architecture.yaml template',
+            default: false,
+          },
+          check: {
+            type: 'boolean',
+            description: 'Check for architecture violations',
+            default: false,
+          },
+          enforce: {
+            type: 'boolean',
+            description: 'Enforce architecture rules (fail on violations)',
+            default: false,
           },
         },
       },

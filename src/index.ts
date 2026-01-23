@@ -214,11 +214,17 @@ import { RouteIndexer } from './indexes/route-indexer.js';
 import { HardwareIndexer } from './indexes/hardware-indexer.js';
 import { DependencyAnalyzer } from './indexes/dependency-graph.js';
 import { RefactorAnalyzer } from './indexes/refactor-analyzer.js';
+import { ArchitectureEnforcer } from './indexes/architecture-enforcer.js';
 import { SimilarityAnalyzer } from './indexes/similarity.js';
 import { ValidationPipeline } from './validation/pipeline.js';
 import { ReviewChecker } from './validation/review-checker.js';
 import { MutationRunner } from './testing/mutation-runner.js';
+import { TestRunner } from './testing/test-runner.js';
+import { LogAnalyzer } from './debugging/log-analyzer.js';
 import { FeatureManager } from './features/manager.js';
+import { PlanningManager } from './features/planner.js';
+import { GlobalKnowledgeManager } from './knowledge/global-manager.js';
+import { DeviceTreeIndexer } from './embedded/device-tree-indexer.js';
 import { ContextManager } from './sessions/context-manager.js';
 
 const server = new Server(
@@ -243,11 +249,17 @@ const routeIndexer = new RouteIndexer();
 const hardwareIndexer = new HardwareIndexer();
 const dependencyAnalyzer = new DependencyAnalyzer();
 const refactorAnalyzer = new RefactorAnalyzer();
+const architectureEnforcer = new ArchitectureEnforcer();
 const similarityAnalyzer = new SimilarityAnalyzer();
 const validationPipeline = new ValidationPipeline();
 const reviewChecker = new ReviewChecker();
 const mutationRunner = new MutationRunner();
+const testRunner = new TestRunner(process.cwd());
+const logAnalyzer = new LogAnalyzer();
 const featureManager = new FeatureManager();
+const planningManager = new PlanningManager();
+const globalKnowledgeManager = new GlobalKnowledgeManager();
+const deviceTreeIndexer = new DeviceTreeIndexer();
 const contextManager = new ContextManager();
 
 // Register tool handlers
@@ -606,6 +618,9 @@ server.setRequestHandler(CallToolRequestSchema, async request => {
 
     case 'eng_done': {
       try {
+        const doneArgs = args as { promote?: boolean } | undefined;
+        const shouldPromote = doneArgs?.promote === true;
+
         const activeFeature = await featureManager.getActiveFeature();
         if (!activeFeature) {
           return {
@@ -669,6 +684,20 @@ server.setRequestHandler(CallToolRequestSchema, async request => {
             resultText += `  ...and ${knowledgeExtracted.length - 5} more\n`;
           }
           resultText += `\nSaved to: .engineering/knowledge/base.yaml`;
+
+          // Promote to global KB if requested
+          if (shouldPromote && knowledgeExtracted.length > 0) {
+            const config = await configManager.load();
+            const promoteResult = await globalKnowledgeManager.promote(
+              knowledgeExtracted,
+              config.projectName
+            );
+
+            resultText += `\n\n📤 Global Knowledge Promotion:\n`;
+            resultText += `  Promoted: ${promoteResult.promoted}\n`;
+            resultText += `  Skipped (duplicates): ${promoteResult.skipped}\n`;
+            resultText += `  Location: ${globalKnowledgeManager.getGlobalDir()}\n`;
+          }
         }
 
         resultText += mutationWarning;
@@ -1017,12 +1046,57 @@ server.setRequestHandler(CallToolRequestSchema, async request => {
     case 'eng_refactor': {
       try {
         const refactorArgs = args as
-          | { fix?: boolean; dryRun?: boolean; force?: boolean; learn?: boolean }
+          | { fix?: boolean; dryRun?: boolean; force?: boolean; learn?: boolean; clean?: boolean }
           | undefined;
         const shouldFix = refactorArgs?.fix === true;
         const dryRun = refactorArgs?.dryRun === true;
         const force = refactorArgs?.force === true;
         const shouldLearn = refactorArgs?.learn === true;
+        const shouldClean = refactorArgs?.clean === true;
+
+        // Handle clean mode
+        if (shouldClean) {
+          const cleanResult = await refactorAnalyzer.cleanGarbage({
+            fix: shouldFix,
+            dryRun,
+          });
+
+          let output = '# Garbage File Detection\n\n';
+
+          if (cleanResult.found.length === 0) {
+            output += '✓ No garbage files found.\n';
+          } else {
+            output += `Found ${cleanResult.found.length} garbage file(s):\n\n`;
+            for (const file of cleanResult.found.slice(0, 20)) {
+              output += `  • ${file}\n`;
+            }
+            if (cleanResult.found.length > 20) {
+              output += `  ...and ${cleanResult.found.length - 20} more\n`;
+            }
+            output += '\n';
+
+            if (dryRun && cleanResult.wouldDelete.length > 0) {
+              output += `\nWould delete ${cleanResult.wouldDelete.length} file(s).\n`;
+              output += 'Run with --fix (without --dry-run) to delete.\n';
+            } else if (cleanResult.deleted.length > 0) {
+              output += `\n✓ Deleted ${cleanResult.deleted.length} file(s).\n`;
+            } else if (!shouldFix) {
+              output += '\nRun with --fix to delete these files.\n';
+              output += 'Use --dry-run to preview what would be deleted.\n';
+            }
+
+            if (cleanResult.errors.length > 0) {
+              output += `\nErrors:\n`;
+              for (const err of cleanResult.errors) {
+                output += `  • ${err}\n`;
+              }
+            }
+          }
+
+          return {
+            content: [{ type: 'text', text: output }],
+          };
+        }
 
         // Always generate fixes if fix flag is set (for dry-run or apply)
         const report = await refactorAnalyzer.analyze({ generateFixes: shouldFix });
@@ -1332,6 +1406,386 @@ server.setRequestHandler(CallToolRequestSchema, async request => {
       } catch (error) {
         return {
           content: [{ type: 'text', text: `Mutation testing failed: ${String(error)}` }],
+          isError: true,
+        };
+      }
+    }
+
+    case 'eng_unittest': {
+      try {
+        const testArgs = args as { file?: string; watch?: boolean } | undefined;
+        const file = testArgs?.file;
+        const watch = testArgs?.watch ?? false;
+
+        // Detect framework
+        const framework = await testRunner.detectFramework();
+
+        if (framework === 'unknown') {
+          return {
+            content: [
+              {
+                type: 'text',
+                text: 'No test framework detected. Supported: vitest, jest, pytest, cargo, go, dotnet, ctest.',
+              },
+            ],
+            isError: true,
+          };
+        }
+
+        // Get command for display
+        const cmd = testRunner.getCommand(framework, { file, watch });
+
+        if (watch) {
+          return {
+            content: [
+              {
+                type: 'text',
+                text: `Starting watch mode with ${framework}...\n\nCommand: ${cmd}\n\nNote: Watch mode runs in background. Use Ctrl+C to stop.`,
+              },
+            ],
+          };
+        }
+
+        // Run tests
+        const result = await testRunner.run({ file, watch });
+
+        let output = `# Unit Test Results (${framework})\n\n`;
+        output += `Command: ${cmd}\n\n`;
+        output += `## Summary\n`;
+        output += `  Passed:  ${result.passed}\n`;
+        output += `  Failed:  ${result.failed}\n`;
+        output += `  Skipped: ${result.skipped}\n`;
+        output += `  Total:   ${result.total}\n`;
+        output += `  Duration: ${result.duration}ms\n\n`;
+
+        if (result.exitCode === 0) {
+          output += '✓ All tests passed!\n';
+        } else {
+          output += `✗ Tests failed (exit code: ${result.exitCode})\n\n`;
+          output += '## Output\n```\n';
+          // Limit output to last 50 lines
+          const lines = result.output.split('\n');
+          const lastLines = lines.slice(-50).join('\n');
+          output += lastLines;
+          output += '\n```';
+        }
+
+        return {
+          content: [{ type: 'text', text: output }],
+        };
+      } catch (error) {
+        return {
+          content: [{ type: 'text', text: `Unit test failed: ${String(error)}` }],
+          isError: true,
+        };
+      }
+    }
+
+    case 'eng_debug': {
+      try {
+        const debugArgs = args as
+          | { file?: string; pattern?: string; tail?: number; ignoreCase?: boolean }
+          | undefined;
+
+        if (!debugArgs?.file) {
+          return {
+            content: [
+              {
+                type: 'text',
+                text: 'File path required. Usage: eng_debug --file /path/to/log.log',
+              },
+            ],
+            isError: true,
+          };
+        }
+
+        const result = await logAnalyzer.analyze({
+          file: debugArgs.file,
+          pattern: debugArgs.pattern,
+          tail: debugArgs.tail,
+          ignoreCase: debugArgs.ignoreCase,
+        });
+
+        return {
+          content: [{ type: 'text', text: logAnalyzer.formatResult(result) }],
+        };
+      } catch (error) {
+        return {
+          content: [{ type: 'text', text: `Log analysis failed: ${String(error)}` }],
+          isError: true,
+        };
+      }
+    }
+
+    case 'eng_plan': {
+      try {
+        const planArgs = args as
+          | { feature?: string; injectKnowledge?: boolean; injectManifesto?: boolean; description?: string }
+          | undefined;
+
+        if (!planArgs?.feature) {
+          return {
+            content: [
+              {
+                type: 'text',
+                text: 'Feature name required. Usage: eng_plan --feature <name>',
+              },
+            ],
+            isError: true,
+          };
+        }
+
+        const result = await planningManager.createPlan({
+          feature: planArgs.feature,
+          injectKnowledge: planArgs.injectKnowledge ?? true,
+          injectManifesto: planArgs.injectManifesto ?? true,
+          description: planArgs.description,
+        });
+
+        if (result.error) {
+          return {
+            content: [{ type: 'text', text: `Plan creation failed: ${result.error}` }],
+            isError: true,
+          };
+        }
+
+        let output = `✓ Created plan for feature "${result.feature}"\n`;
+        output += `  Location: ${result.planPath}\n`;
+
+        if (result.knowledgeInjected.length > 0) {
+          output += `\n📚 Injected ${result.knowledgeInjected.length} knowledge entry(ies)\n`;
+        }
+
+        if (result.manifestoInjected) {
+          output += `\n📋 Manifesto rules injected\n`;
+        }
+
+        output += `\nEdit the plan at ${result.planPath} to define objectives, tasks, and acceptance criteria.`;
+
+        return {
+          content: [{ type: 'text', text: output }],
+        };
+      } catch (error) {
+        return {
+          content: [{ type: 'text', text: `Plan creation failed: ${String(error)}` }],
+          isError: true,
+        };
+      }
+    }
+
+    case 'eng_dts': {
+      try {
+        const dtsArgs = args as
+          | { scan?: boolean; check?: string; conflicts?: boolean; available?: string }
+          | undefined;
+
+        // Default to scan if no specific action
+        const shouldScan = dtsArgs?.scan ?? (!dtsArgs?.check && !dtsArgs?.conflicts && !dtsArgs?.available);
+
+        if (shouldScan) {
+          const result = await deviceTreeIndexer.scan();
+          await deviceTreeIndexer.saveIndex();
+
+          if (result.files.length === 0) {
+            return {
+              content: [
+                {
+                  type: 'text',
+                  text: 'No device tree files (.dts/.dtsi) found in the project.',
+                },
+              ],
+            };
+          }
+
+          return {
+            content: [
+              {
+                type: 'text',
+                text: deviceTreeIndexer.getSummary() + '\n\nFull index: .engineering/index/device-tree.yaml',
+              },
+            ],
+          };
+        }
+
+        // Need to scan first for other operations
+        await deviceTreeIndexer.scan();
+
+        // Check node reference
+        if (dtsArgs?.check) {
+          const checkResult = await deviceTreeIndexer.checkNode(dtsArgs.check);
+
+          let output = `# Node Check: ${dtsArgs.check}\n\n`;
+          if (checkResult.exists) {
+            output += `✓ Node exists\n`;
+            output += `  Status: ${checkResult.status}\n`;
+            if (checkResult.node) {
+              output += `  Path: ${checkResult.node.path}\n`;
+              output += `  File: ${checkResult.node.file}:${checkResult.node.line}\n`;
+            }
+            if (checkResult.warning) {
+              output += `\n⚠️ Warning: ${checkResult.warning}\n`;
+            }
+          } else {
+            output += `✗ Node does not exist\n`;
+            output += `\nAvailable nodes in index:\n`;
+            const index = deviceTreeIndexer.getIndex();
+            for (const node of index.nodes.slice(0, 10)) {
+              output += `  • &${node.name} (${node.status})\n`;
+            }
+          }
+
+          return {
+            content: [{ type: 'text', text: output }],
+          };
+        }
+
+        // Detect conflicts
+        if (dtsArgs?.conflicts) {
+          const conflicts = await deviceTreeIndexer.detectConflicts();
+
+          let output = `# Pin Muxing Conflict Detection\n\n`;
+          if (conflicts.length === 0) {
+            output += `✓ No pin conflicts detected.\n`;
+          } else {
+            output += `⚠️ Found ${conflicts.length} conflict(s):\n\n`;
+            for (const conflict of conflicts) {
+              output += `**${conflict.nodes.join(' ↔ ')}**\n`;
+              output += `  Pins: ${conflict.pins.join(', ')}\n`;
+              output += `  ${conflict.description}\n\n`;
+            }
+          }
+
+          return {
+            content: [{ type: 'text', text: output }],
+          };
+        }
+
+        // List available nodes
+        if (dtsArgs?.available) {
+          const nodes = await deviceTreeIndexer.listAvailable(dtsArgs.available);
+
+          let output = `# Available ${dtsArgs.available.toUpperCase()} Nodes\n\n`;
+          if (nodes.length === 0) {
+            output += `No enabled ${dtsArgs.available} nodes found.\n`;
+          } else {
+            output += `Found ${nodes.length} enabled node(s):\n\n`;
+            for (const node of nodes) {
+              output += `**&${node.name}**\n`;
+              output += `  Path: ${node.path}\n`;
+              output += `  File: ${node.file}:${node.line}\n`;
+              if (node.pinctrl.length > 0) {
+                output += `  Pinctrl: ${node.pinctrl.join(', ')}\n`;
+              }
+              output += '\n';
+            }
+          }
+
+          return {
+            content: [{ type: 'text', text: output }],
+          };
+        }
+
+        return {
+          content: [
+            {
+              type: 'text',
+              text: 'No action specified. Use --scan, --check <node>, --conflicts, or --available <type>.',
+            },
+          ],
+        };
+      } catch (error) {
+        return {
+          content: [{ type: 'text', text: `Device tree analysis failed: ${String(error)}` }],
+          isError: true,
+        };
+      }
+    }
+
+    case 'eng_arch': {
+      try {
+        const archArgs = args as
+          | { init?: boolean; check?: boolean; enforce?: boolean }
+          | undefined;
+
+        // Handle init
+        if (archArgs?.init) {
+          const result = await architectureEnforcer.init();
+
+          if (result.skipped) {
+            return {
+              content: [
+                {
+                  type: 'text',
+                  text: `Architecture config already exists at ${result.configPath}.\nEdit it to define your architectural layers and rules.`,
+                },
+              ],
+            };
+          }
+
+          return {
+            content: [
+              {
+                type: 'text',
+                text: `✓ Created architecture template at ${result.configPath}\n\nEdit the file to define:\n  • Layers (presentation, domain, infrastructure, etc.)\n  • Allowed dependencies between layers\n  • Custom rules\n\nThen run eng_arch --check to detect violations.`,
+              },
+            ],
+          };
+        }
+
+        // Handle check
+        if (archArgs?.check) {
+          await architectureEnforcer.loadConfig();
+          const report = await architectureEnforcer.check();
+
+          return {
+            content: [
+              {
+                type: 'text',
+                text: architectureEnforcer.formatReport(report),
+              },
+            ],
+          };
+        }
+
+        // Handle enforce
+        if (archArgs?.enforce) {
+          await architectureEnforcer.loadConfig();
+          const report = await architectureEnforcer.enforce();
+
+          if (report.failed) {
+            return {
+              content: [
+                {
+                  type: 'text',
+                  text: `❌ Architecture enforcement FAILED\n\n${architectureEnforcer.formatReport(report)}`,
+                },
+              ],
+              isError: true,
+            };
+          }
+
+          return {
+            content: [
+              {
+                type: 'text',
+                text: `✓ Architecture check passed\n\n${report.summary}`,
+              },
+            ],
+          };
+        }
+
+        // Default: show help
+        return {
+          content: [
+            {
+              type: 'text',
+              text: 'Usage:\n  --init     Create architecture.yaml template\n  --check    Check for violations\n  --enforce  Fail if violations exist',
+            },
+          ],
+        };
+      } catch (error) {
+        return {
+          content: [{ type: 'text', text: `Architecture check failed: ${String(error)}` }],
           isError: true,
         };
       }
