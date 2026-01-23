@@ -10,10 +10,10 @@ An MCP (Model Context Protocol) server and Claude Code plugin for AI-assisted en
 - **Function indexing**: Index and search functions across TypeScript, Python, C#, Go, Rust, C/C++
 - **Duplicate detection**: Find duplicate code blocks for refactoring
 - **Route indexing**: Index API routes (Express, Flask, FastAPI, ASP.NET, Go)
-- **Hardware indexing**: Index embedded hardware configs (STM32, ESP32, Arduino)
+- **Hardware indexing**: Index embedded hardware configs (STM32, ESP32, Arduino, Linux SBC)
+- **Linux SBC support**: Auto-detect Radxa, Jetson, Raspberry Pi, Orange Pi, BeagleBone
 - **Knowledge base**: Extract and query learnings from completed features
 - **Session management**: Checkpoints for context preservation across Claude sessions
-- **Multi-session coordination**: Parallel Claude instances with file locking
 
 ## Installation
 
@@ -92,7 +92,7 @@ npm uninstall -g mcp-engineering-server
 | `/eng-index-function [query]` | Search indexed functions |
 | `/eng-index-similar <code>` | Find similar code snippets |
 | `/eng-routes` | Index API routes (web projects) |
-| `/eng-hardware` | Index hardware configs (embedded) |
+| `/eng-hardware` | Index hardware configs (MCU + Linux SBC) |
 | `/eng-knowledge [query]` | Query knowledge base |
 
 ### Session Management
@@ -101,12 +101,6 @@ npm uninstall -g mcp-engineering-server
 |---------|-------------|
 | `/eng-checkpoint` | Save session checkpoint |
 | `/eng-resume` | Resume from checkpoint |
-| `/eng-session-start <A\|B\|C>` | Start parallel session |
-| `/eng-session-status` | View active sessions |
-| `/eng-session-switch <A\|B\|C>` | Switch between sessions |
-| `/eng-session-sync` | Sync discoveries between sessions |
-| `/eng-lock <file>` | Lock file for editing |
-| `/eng-unlock <file>` | Unlock file |
 
 ## Workflows & Scenarios
 
@@ -260,44 +254,7 @@ Preserve context across Claude sessions:
 
 ---
 
-### Scenario 7: Parallel Development (Multi-Session)
-
-Multiple Claude instances working on same codebase:
-
-```bash
-# Terminal 1: Start session A
-/eng-session-start A
-/eng-lock src/auth/login.ts      # Lock file to prevent conflicts
-
-# Terminal 2: Start session B
-/eng-session-start B
-/eng-lock src/auth/register.ts   # Lock different file
-
-# Check all sessions and locks
-/eng-session-status
-
-# Sync discoveries between sessions
-/eng-session-sync
-
-# When done, unlock files
-/eng-unlock src/auth/login.ts
-```
-
-**Session status output:**
-```
-Active Sessions:
-  A: Working on src/auth/login.ts (locked)
-  B: Working on src/auth/register.ts (locked)
-  C: Inactive
-
-Locked Files:
-  - src/auth/login.ts (Session A)
-  - src/auth/register.ts (Session B)
-```
-
----
-
-### Scenario 8: Pre-Commit Review
+### Scenario 7: Pre-Commit Review
 
 Final checks before creating PR:
 
@@ -323,7 +280,7 @@ Pre-Completion Review:
 
 ---
 
-### Scenario 9: Mutation Testing
+### Scenario 8: Mutation Testing
 
 Verify test quality with mutation testing:
 
@@ -459,6 +416,11 @@ After running `/eng-init`, a `.engineering/` directory is created:
 | `go` | go.mod |
 | `embedded-stm32` | *.ioc |
 | `embedded-esp` | sdkconfig |
+| `embedded-radxa` | /proc/device-tree/compatible (radxa) |
+| `embedded-jetson` | /etc/nv_tegra_release |
+| `embedded-rpi` | /proc/device-tree/model (Raspberry Pi) |
+| `embedded-orangepi` | /proc/device-tree/compatible (xunlong) |
+| `embedded-beaglebone` | /proc/device-tree/compatible (beagle) |
 | `mobile-flutter` | pubspec.yaml |
 | `mobile-react-native` | react-native in package.json |
 
@@ -466,6 +428,7 @@ After running `/eng-init`, a `.engineering/` directory is created:
 
 The security scanner detects:
 
+**Secrets & Credentials:**
 - AWS Access Keys & Secret Keys
 - GCP API Keys
 - Azure Storage Keys
@@ -474,6 +437,14 @@ The security scanner detects:
 - Database connection strings (MongoDB, PostgreSQL, MySQL)
 - RSA/SSH Private Keys
 - Hardcoded passwords
+
+**Embedded/Linux SBC Safety (with `embedded` profile):**
+- Dynamic memory allocation (malloc/free) - critical
+- Blocking delays - warning
+- Deprecated GPIO sysfs (`/sys/class/gpio`) - warning
+- I2C transfer without error check - warning
+- DTS status="okay" without pinctrl - info
+- SPI/PWM configuration issues - info
 
 ## Requirements
 
