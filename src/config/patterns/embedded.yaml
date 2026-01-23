@@ -128,3 +128,51 @@ patterns:
     message: "Direct device access detected. May require root privileges."
     suggestion: "Add privilege check or use udev rules for permissions."
     tags: ["linux", "security", "permissions"]
+
+  # ============================================
+  # LINUX SBC SPECIFIC (Phase 4.2)
+  # ============================================
+
+  - name: "Deprecated GPIO sysfs"
+    regex: "/sys/class/gpio"
+    severity: warning
+    type: safety
+    message: "sysfs GPIO interface is deprecated since Linux 4.8."
+    suggestion: "Use libgpiod with gpiod_line_request() instead of sysfs interface."
+    rationale: "sysfs GPIO is deprecated and will be removed. libgpiod provides better performance and atomicity."
+    tags: ["linux", "gpio", "deprecated", "sbc"]
+
+  - name: "I2C Missing Error Check"
+    regex: "i2c_transfer\\s*\\([^)]+\\)\\s*;"
+    severity: warning
+    type: safety
+    message: "I2C transfer without error checking."
+    suggestion: "Check return value: if (i2c_transfer(adapter, msgs, num) < 0) { /* handle error */ }"
+    rationale: "I2C operations can fail due to bus errors, NAK, or timeout. Always check return value."
+    tags: ["linux", "i2c", "error-handling", "sbc"]
+
+  - name: "DTS Status Enabled"
+    regex: "status\\s*=\\s*\"okay\""
+    severity: info
+    type: safety
+    message: "Device tree node enabled - verify pinctrl is configured correctly."
+    suggestion: "Ensure pinctrl-names and pinctrl-0 are set to avoid pin conflicts."
+    rationale: "Enabling a node without proper pin configuration can cause conflicts."
+    tags: ["linux", "dts", "pinctrl", "sbc"]
+    context_hint: "Check for pinctrl-0 property in the same node"
+
+  - name: "SPI Without CS Control"
+    regex: "spi_sync\\s*\\([^)]+\\)\\s*;"
+    severity: info
+    type: safety
+    message: "SPI transfer - ensure chip select is properly managed."
+    suggestion: "Verify cs_change flag in spi_transfer struct if multiple devices on bus."
+    tags: ["linux", "spi", "sbc"]
+
+  - name: "PWM Without Period Set"
+    regex: "pwm_enable\\s*\\("
+    severity: info
+    type: safety
+    message: "PWM enable detected - ensure period and duty cycle are configured first."
+    suggestion: "Call pwm_config() before pwm_enable() to set period and duty cycle."
+    tags: ["linux", "pwm", "sbc"]

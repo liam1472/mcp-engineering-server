@@ -23,9 +23,31 @@ interface HardwareDefine {
   line: number;
 }
 
+interface SBCPlatformInfo {
+  platform: 'radxa' | 'raspberry-pi' | 'jetson' | 'orange-pi' | 'beaglebone' | 'unknown';
+  model?: string;
+  soc?: string;
+  tegra_release?: string;
+}
+
+interface GPIOChip {
+  label: string;
+  ngpio: number;
+  base: number;
+}
+
+interface SPIDevice {
+  bus: number;
+  cs: number;
+}
+
 interface HardwareIndex {
   peripherals: Peripheral[];
   defines: HardwareDefine[];
+  sbc?: SBCPlatformInfo;
+  gpioChips?: GPIOChip[];
+  i2cBuses?: number[];
+  spiBuses?: SPIDevice[];
 }
 
 // Patterns for detecting hardware configurations
@@ -135,6 +157,28 @@ export class HardwareIndexer {
       await this.scanSdkConfig();
     } catch {
       // No sdkconfig
+    }
+
+    // Detect SBC platform info
+    const sbcInfo = await this.detectSBCPlatform();
+    if (sbcInfo.platform !== 'unknown') {
+      this.index.sbc = sbcInfo;
+    }
+
+    // Detect peripheral buses on Linux SBC
+    const gpioChips = await this.detectGPIOChips();
+    if (gpioChips.length > 0) {
+      this.index.gpioChips = gpioChips;
+    }
+
+    const i2cBuses = await this.detectI2CBuses();
+    if (i2cBuses.length > 0) {
+      this.index.i2cBuses = i2cBuses;
+    }
+
+    const spiBuses = await this.detectSPIBuses();
+    if (spiBuses.length > 0) {
+      this.index.spiBuses = spiBuses;
     }
 
     return this.index;
@@ -345,5 +389,204 @@ export class HardwareIndexer {
   setWorkingDir(dir: string): void {
     this.workingDir = dir;
     this.index = { peripherals: [], defines: [] };
+  }
+
+  /**
+   * Detect Linux SBC platform from system files.
+   * Detection patterns:
+   * - Radxa: /proc/device-tree/compatible contains "radxa"
+   * - Raspberry Pi: /proc/device-tree/model contains "Raspberry Pi"
+   * - Jetson: /etc/nv_tegra_release exists
+   * - Orange Pi: /proc/device-tree/compatible contains "orangepi" or "xunlong"
+   * - BeagleBone: /proc/device-tree/compatible contains "beagleboard" or "beaglebone"
+   */
+  async detectSBCPlatform(): Promise<SBCPlatformInfo> {
+    const result: SBCPlatformInfo = { platform: 'unknown' };
+
+    try {
+      // Check for Jetson first (has unique file)
+      const tegraReleasePath = path.join(this.workingDir, 'etc', 'nv_tegra_release');
+      try {
+        const tegraContent = await fs.readFile(tegraReleasePath, 'utf-8');
+        result.platform = 'jetson';
+        // Extract release version: # R35 (release)...
+        const releaseMatch = /R\d+/.exec(tegraContent);
+        if (releaseMatch) {
+          result.tegra_release = releaseMatch[0];
+        }
+        return result;
+      } catch {
+        // Not Jetson, continue checking
+      }
+
+      // Check device-tree compatible and model
+      const dtCompatiblePath = path.join(this.workingDir, 'proc', 'device-tree', 'compatible');
+      const dtModelPath = path.join(this.workingDir, 'proc', 'device-tree', 'model');
+
+      let compatible = '';
+      let model = '';
+
+      try {
+        compatible = await fs.readFile(dtCompatiblePath, 'utf-8');
+        // Replace null bytes with commas for easier parsing
+        compatible = compatible.replace(/\0/g, ',').toLowerCase();
+      } catch {
+        // No compatible file
+      }
+
+      try {
+        model = await fs.readFile(dtModelPath, 'utf-8');
+        // Remove null terminator
+        model = model.replace(/\0/g, '').trim();
+      } catch {
+        // No model file
+      }
+
+      // Extract SoC from compatible string
+      // Format is typically: "vendor,model\0vendor,soc\0"
+      // SoC entries are like: rockchip,rk3588s / brcm,bcm2712 / ti,am33xx
+      const compatibleParts = compatible.split(',').filter(p => p.trim());
+
+      // Look for SoC patterns - find the entry AFTER vendor prefixes
+      for (const part of compatibleParts) {
+        const trimmedPart = part.trim();
+        // Check if this is a SoC identifier (not a board/model name)
+        // SoC identifiers are typically short and match these patterns
+        if (/^(rk3\d+s?|bcm\d+|am\d+xx|sun\d+i|tegra\d+)$/i.test(trimmedPart)) {
+          result.soc = trimmedPart;
+          break;
+        }
+      }
+
+      // Check for Raspberry Pi
+      if (model.toLowerCase().includes('raspberry pi') || compatible.includes('raspberrypi')) {
+        result.platform = 'raspberry-pi';
+        result.model = model || 'Raspberry Pi';
+        return result;
+      }
+
+      // Check for Radxa
+      if (compatible.includes('radxa')) {
+        result.platform = 'radxa';
+        result.model = model || this.extractModelFromCompatible(compatible, 'radxa');
+        return result;
+      }
+
+      // Check for Orange Pi
+      if (compatible.includes('orangepi') || compatible.includes('xunlong')) {
+        result.platform = 'orange-pi';
+        result.model = model || this.extractModelFromCompatible(compatible, 'orangepi');
+        return result;
+      }
+
+      // Check for BeagleBone
+      if (compatible.includes('beagleboard') || compatible.includes('beaglebone')) {
+        result.platform = 'beaglebone';
+        result.model = model || this.extractModelFromCompatible(compatible, 'beagle');
+        return result;
+      }
+
+    } catch {
+      // Error reading system files
+    }
+
+    return result;
+  }
+
+  private extractModelFromCompatible(compatible: string, vendor: string): string {
+    // Format: "vendor,model,vendor,soc," (null bytes replaced with commas)
+    // Find vendor and return the next part (the model)
+    const parts = compatible.split(',').map(p => p.trim()).filter(p => p);
+    for (let i = 0; i < parts.length - 1; i++) {
+      const current = parts[i];
+      const next = parts[i + 1];
+      if (current && next && current.includes(vendor)) {
+        // Return the next part which should be the model
+        return next;
+      }
+    }
+    return vendor;
+  }
+
+  /**
+   * Detect GPIO chips from /sys/class/gpio
+   */
+  async detectGPIOChips(): Promise<GPIOChip[]> {
+    const chips: GPIOChip[] = [];
+    const gpioDir = path.join(this.workingDir, 'sys', 'class', 'gpio');
+
+    try {
+      const entries = await fs.readdir(gpioDir, { withFileTypes: true });
+
+      for (const entry of entries) {
+        if (entry.isDirectory() && entry.name.startsWith('gpiochip')) {
+          const chipDir = path.join(gpioDir, entry.name);
+
+          try {
+            const label = (await fs.readFile(path.join(chipDir, 'label'), 'utf-8')).trim();
+            const ngpio = parseInt((await fs.readFile(path.join(chipDir, 'ngpio'), 'utf-8')).trim(), 10);
+            const base = parseInt((await fs.readFile(path.join(chipDir, 'base'), 'utf-8')).trim(), 10);
+
+            chips.push({ label, ngpio, base });
+          } catch {
+            // Skip incomplete chip info
+          }
+        }
+      }
+    } catch {
+      // No GPIO directory
+    }
+
+    // Sort by base for consistent output
+    return chips.sort((a, b) => a.base - b.base);
+  }
+
+  /**
+   * Detect I2C buses from /dev/i2c-*
+   */
+  async detectI2CBuses(): Promise<number[]> {
+    const buses: number[] = [];
+    const devDir = path.join(this.workingDir, 'dev');
+
+    try {
+      const entries = await fs.readdir(devDir);
+
+      for (const entry of entries) {
+        const match = /^i2c-(\d+)$/.exec(entry);
+        if (match && match[1]) {
+          buses.push(parseInt(match[1], 10));
+        }
+      }
+    } catch {
+      // No dev directory
+    }
+
+    return buses.sort((a, b) => a - b);
+  }
+
+  /**
+   * Detect SPI buses from /dev/spidev*
+   */
+  async detectSPIBuses(): Promise<SPIDevice[]> {
+    const devices: SPIDevice[] = [];
+    const devDir = path.join(this.workingDir, 'dev');
+
+    try {
+      const entries = await fs.readdir(devDir);
+
+      for (const entry of entries) {
+        const match = /^spidev(\d+)\.(\d+)$/.exec(entry);
+        if (match && match[1] && match[2]) {
+          devices.push({
+            bus: parseInt(match[1], 10),
+            cs: parseInt(match[2], 10),
+          });
+        }
+      }
+    } catch {
+      // No dev directory
+    }
+
+    return devices.sort((a, b) => a.bus - b.bus || a.cs - b.cs);
   }
 }

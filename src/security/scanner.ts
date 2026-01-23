@@ -208,7 +208,7 @@ const IGNORED_EXTENSIONS = new Set([
   '.eot',
 ]);
 
-const IGNORED_DIRS = new Set(['node_modules', '.git', 'dist', 'build', 'vendor', '__pycache__']);
+const IGNORED_DIRS = new Set(['node_modules', '.git', 'dist', 'build', 'vendor', '__pycache__', 'reports', 'coverage']);
 
 const IGNORED_FILES = new Set([
   'package-lock.json',

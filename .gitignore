@@ -83,3 +83,7 @@ UPGRADE.md
 # package-lock.json
 # yarn.lock
 # pnpm-lock.yaml
+
+# Project tracking docs (local only)
+HANDOFF.md
+ROADMAP-V2.md

@@ -7,7 +7,7 @@
  * @see ROADMAP-V2.md Phase 4.1
  */
 
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+/// <reference types="vitest/globals" />
 import * as fs from 'fs/promises';
 import * as path from 'path';
 import * as os from 'os';
