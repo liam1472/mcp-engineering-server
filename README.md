@@ -1,9 +1,10 @@
 # MCP Engineering Server
 
-[![Build](https://img.shields.io/badge/build-passing-brightgreen)](https://github.com/liam1472/mcp-engineering-server)
-[![Tests](https://img.shields.io/badge/tests-539%20passed-blue)](https://github.com/liam1472/mcp-engineering-server)
-[![Platform](https://img.shields.io/badge/platform-Embedded%20%7C%20Web%20%7C%20.NET-orange)](https://github.com/liam1472/mcp-engineering-server)
-[![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
+[![npm version](https://img.shields.io/npm/v/mcp-engineering-server?color=blue&label=npm)](https://www.npmjs.com/package/mcp-engineering-server)
+[![npm downloads](https://img.shields.io/npm/dm/mcp-engineering-server?color=green&label=downloads)](https://www.npmjs.com/package/mcp-engineering-server)
+[![License](https://img.shields.io/npm/l/mcp-engineering-server?color=blue)](LICENSE)
+[![Node](https://img.shields.io/node/v/mcp-engineering-server?color=brightgreen)](https://nodejs.org)
+[![Platform](https://img.shields.io/badge/platform-Embedded%20%7C%20Web%20%7C%20.NET-orange)](https://github.com/phdlam/mcp-engineering-server)
 
 > **The "Engineering OS" for AI Agents.**
 > Turn your LLM into a Senior Engineer capable of handling **1GB+ logs**, **atomic refactoring**, and **embedded systems** safely.
