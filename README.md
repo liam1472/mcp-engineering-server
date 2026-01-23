@@ -96,14 +96,14 @@ npm uninstall -g mcp-engineering-server
 
 | Command | Description |
 |---------|-------------|
-| `/eng-test` | Run mutation testing (auto-detect language) |
-| `/eng-test --file <path>` | Mutation test specific file |
-| `/eng-test --mode check` | Verify mutation score meets threshold |
-| `/eng-test --mode analyze` | Testability analysis only (no mutation) |
-| `/eng-test --threshold 40` | Set custom threshold (default: 30%) |
-| `/eng-unittest` | Run fast unit tests for TDD loop |
-| `/eng-unittest --file <path>` | Test specific file |
-| `/eng-unittest --watch` | Enable watch mode |
+| `/eng-test` | Run fast unit tests (auto-detect framework) |
+| `/eng-test --file <path>` | Test specific file |
+| `/eng-test --watch` | Enable watch mode for TDD |
+| `/eng-mutation` | Run mutation testing (SLOW - use before completing) |
+| `/eng-mutation --file <path>` | Mutation test specific file |
+| `/eng-mutation --mode check` | Verify mutation score meets threshold |
+| `/eng-mutation --mode analyze` | Testability analysis only (no mutation) |
+| `/eng-mutation --threshold 40` | Set custom threshold (default: 30%) |
 
 ### Analysis & Refactoring
 
@@ -180,8 +180,8 @@ npm uninstall -g mcp-engineering-server
 /eng-start user-authentication
 /eng-plan user-authentication  # Create plan with knowledge injection
 # ... implement feature ...
-/eng-unittest                # Fast TDD loop
-/eng-test                    # Verify mutation score >= 30%
+/eng-test                    # Fast unit tests (use frequently)
+/eng-mutation                # Verify mutation score >= 30%
 /eng-refactor                # Check code quality
 /eng-review                  # Pre-completion checklist
 /eng-done                    # Archive and extract knowledge

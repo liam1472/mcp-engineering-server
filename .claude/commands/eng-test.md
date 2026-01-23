@@ -1,109 +1,52 @@
-# /eng-test - Mutation Testing
+# /eng-test - Fast Unit Tests
 
-Run the MCP tool `eng_test` to verify test quality through mutation testing.
+Run the MCP tool `eng_test` for fast unit testing during TDD. Use this frequently during development.
 
-**Supports:** TypeScript, JavaScript, Python, Rust, Go, C#, C, C++
+**Supports:** vitest, jest, pytest, cargo test, go test, dotnet test, ctest
 
 ## Usage
 
 ```bash
-/eng-test                           # Full mutation test (auto-detect language)
-/eng-test --file src/foo.ts         # Test specific file
-/eng-test --file main.py            # Test Python file (uses mutmut)
-/eng-test --file lib.rs             # Test Rust file (uses cargo-mutants)
-/eng-test --mode check              # Check if threshold is met
-/eng-test --mode analyze --file src/foo.ts  # Testability analysis only
-/eng-test --threshold 40            # Set custom threshold (default: 30)
+/eng-test                           # Run all tests (auto-detect framework)
+/eng-test --file src/foo.test.ts    # Test specific file
+/eng-test --watch                   # Enable watch mode
 ```
 
-## Supported Languages & Tools
+## Supported Frameworks
 
-| Language | Tool | Install Command |
-|----------|------|-----------------|
-| TypeScript/JavaScript | Stryker | `npm install --save-dev @stryker-mutator/core` |
-| Python | mutmut | `pip install mutmut` |
-| Rust | cargo-mutants | `cargo install cargo-mutants` |
-| Go | go-mutesting | `go install github.com/zimmski/go-mutesting/cmd/go-mutesting@latest` |
-| C# | dotnet-stryker | `dotnet tool install -g dotnet-stryker` |
-| C/C++ | mull | See https://mull.readthedocs.io |
-
-## Modes
-
-| Mode | Description |
-|------|-------------|
-| `run` (default) | Full mutation testing (auto-detects tool) |
-| `check` | Verify mutation score meets threshold |
-| `analyze` | Testability analysis only (no mutation testing) |
+| Framework | Detection |
+|-----------|-----------|
+| vitest | vitest.config.ts or vitest in package.json |
+| jest | jest.config.js or jest in package.json |
+| pytest | pytest.ini or pyproject.toml |
+| cargo | Cargo.toml |
+| go | go.mod |
+| dotnet | *.csproj |
+| ctest | CMakeLists.txt |
 
 ## Output
 
-### Full Run (`run` mode)
-
 ```
-# Mutation Test Report
+# Unit Test Results (vitest)
+
+Command: npx vitest run
 
 ## Summary
-Score: **29.89%** (needs-improvement)
-Killed: 322
-Survived: 556
-No Coverage: 210
-Total: 1088
+  Passed:  42
+  Failed:  0
+  Skipped: 2
+  Total:   44
+  Duration: 1234ms
 
-## Verdict: NEEDS-IMPROVEMENT
-⚠️ Needs improvement - add more targeted tests.
-
-## Surviving Mutants (showing first 10)
-**src/foo.ts:142** [ConditionalExpression]
-  Status: Survived
-  💡 Add test for both true and false branches
-
-## Testability Issues (3)
-[HIGH] **complexMethod** (complex-private)
-  src/foo.ts:50
-  Private method 'complexMethod' is 25 lines - hard to test directly
-  💡 Extract to a separate testable class or make protected/public for testing
-
-## Recommendations
-⚠️ Mutation score is below 30% - prioritize adding tests for critical code paths
-🔧 3 complex private method(s) detected - consider extracting to testable classes
+✓ All tests passed!
 ```
 
-### Check Mode
+## When to Use
 
-```
-✓ Mutation score 35.00% meets threshold 30%
+- **During TDD**: Run frequently as you write code
+- **Before commits**: Quick sanity check
+- **After refactoring**: Verify nothing broke
 
-Score: 35.00%
-Threshold: 30%
-Status: PASSED ✓
-```
+## See Also
 
-## Score Thresholds
-
-| Score | Verdict |
-|-------|---------|
-| >= 60% | Excellent |
-| >= 50% | Good |
-| >= 40% | Acceptable |
-| >= 30% | Needs Improvement |
-| < 30% | Poor |
-
-## Testability Issues Detected
-
-| Issue | Description | Suggestion |
-|-------|-------------|------------|
-| `complex-private` | Private method > 15 lines | Extract to testable class |
-| `no-di` | Direct `new Class()` instantiation | Use dependency injection |
-| `too-many-params` | Method with > 4 parameters | Use options object |
-
-## Requirements
-
-- Stryker must be installed: `npm install --save-dev @stryker-mutator/core`
-- Stryker config file (`stryker.config.mjs`) must exist
-
-## Philosophy
-
-> **NO "effective score" rationalization**
->
-> This tool reports raw mutation score only. If the score is 30%, it reports 30%.
-> No calculation tricks to make numbers look better.
+- `/eng-mutation` - Slow mutation testing for test quality verification (use before completing features)

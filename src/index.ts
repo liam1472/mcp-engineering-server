@@ -541,9 +541,10 @@ server.setRequestHandler(CallToolRequestSchema, async request => {
 
         resultText += `\n💡 Next steps:\n`;
         resultText += `  1. /eng-plan ${featureName} - Create a planning document (recommended)\n`;
-        resultText += `  2. /eng-test - Verify test quality with mutation testing\n`;
-        resultText += `  3. /eng-validate - Run full validation pipeline\n`;
-        resultText += `  4. /eng-done - Complete and archive feature`;
+        resultText += `  2. /eng-test - Run unit tests (use frequently during TDD)\n`;
+        resultText += `  3. /eng-mutation - Verify test quality before completing\n`;
+        resultText += `  4. /eng-validate - Run full validation pipeline\n`;
+        resultText += `  5. /eng-done - Complete and archive feature`;
 
         // Load and inject manifesto if available
         const manifesto = await featureManager.getManifesto();
@@ -658,7 +659,7 @@ server.setRequestHandler(CallToolRequestSchema, async request => {
 
           if (reportAge > oneHour) {
             mutationWarning =
-              '\n⚠️  Warning: Mutation test report is stale (>1 hour old). Consider running /eng-test before completing.';
+              '\n⚠️  Warning: Mutation test report is stale (>1 hour old). Consider running /eng-mutation before completing.';
           } else {
             // Check score from report
             const reportContent = await fs.readFile(reportPath, 'utf-8');
@@ -670,7 +671,7 @@ server.setRequestHandler(CallToolRequestSchema, async request => {
           }
         } catch {
           mutationWarning =
-            '\n⚠️  Warning: No mutation test found. Run /eng-test to verify test quality before completing.';
+            '\n⚠️  Warning: No mutation test found. Run /eng-mutation to verify test quality before completing.';
         }
 
         const { archivePath, knowledgeExtracted } =
@@ -1279,7 +1280,7 @@ server.setRequestHandler(CallToolRequestSchema, async request => {
       }
     }
 
-    case 'eng_test': {
+    case 'eng_mutation': {
       try {
         const testArgs = args as
           | { file?: string; threshold?: number; mode?: 'run' | 'check' | 'analyze' }
@@ -1415,7 +1416,7 @@ server.setRequestHandler(CallToolRequestSchema, async request => {
       }
     }
 
-    case 'eng_unittest': {
+    case 'eng_test': {
       try {
         const testArgs = args as { file?: string; watch?: boolean } | undefined;
         const file = testArgs?.file;

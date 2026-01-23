@@ -81,6 +81,33 @@ export class FeatureManager {
 
     await fs.writeFile(path.join(featureDir, 'decisions.md'), `# ${name} - Decisions\n\n`, 'utf-8');
 
+    // Create PLAN.md template - AI tends to skip planning if file doesn't exist
+    const planTemplate = `# PLAN: ${name}
+
+> Created: ${new Date().toISOString().split('T')[0]}
+
+## Objective
+
+_Describe the goal of this feature_
+
+## Implementation Steps
+
+- [ ] Step 1: _Define the first task_
+- [ ] Step 2: _Define the next task_
+- [ ] Step 3: _Continue as needed_
+
+## Verification
+
+- [ ] Unit tests pass (/eng-test)
+- [ ] Mutation score acceptable (/eng-mutation)
+- [ ] No security issues (/eng-security)
+
+## Notes
+
+_Any additional context, decisions, or blockers_
+`;
+    await fs.writeFile(path.join(featureDir, 'PLAN.md'), planTemplate, 'utf-8');
+
     return manifest;
   }
 

@@ -12,7 +12,8 @@
 
 # Before committing
 /eng-security          # Check for secrets
-/eng-test              # Check test quality
+/eng-test              # Run unit tests
+/eng-mutation          # Check test quality
 /eng-review            # Final checklist
 
 # Complete feature
@@ -56,9 +57,10 @@ Next: Run eng_scan to build code indexes, eng_security to scan for secrets.
 
 💡 Next steps:
   1. /eng-plan user-authentication - Create a planning document (recommended)
-  2. /eng-test - Verify test quality with mutation testing
-  3. /eng-validate - Run full validation pipeline
-  4. /eng-done - Complete and archive feature
+  2. /eng-test - Run unit tests (use frequently during TDD)
+  3. /eng-mutation - Verify test quality before completing
+  4. /eng-validate - Run full validation pipeline
+  5. /eng-done - Complete and archive feature
 ```
 
 ### 3. Create a Plan (Recommended)
@@ -104,8 +106,8 @@ Checks:
 |---------|-------------|---------|
 | `/eng-security` | Before commit | `/eng-security` |
 | `/eng-security --fix` | Fix found secrets | `/eng-security --fix` |
-| `/eng-test` | Verify tests catch bugs | `/eng-test` |
-| `/eng-unittest` | Fast TDD loop | `/eng-unittest --watch` |
+| `/eng-test` | Fast TDD loop | `/eng-test --watch` |
+| `/eng-mutation` | Verify tests catch bugs (SLOW) | `/eng-mutation` |
 | `/eng-refactor` | Find code smells | `/eng-refactor` |
 | `/eng-review` | Pre-commit checklist | `/eng-review` |
 
@@ -148,7 +150,7 @@ Checks:
 /eng-knowledge "authentication"
 
 # 3. After fixing, verify
-/eng-unittest                    # Run tests
+/eng-test                        # Run unit tests
 /eng-security                    # Check no secrets exposed
 
 # 4. Complete
@@ -166,10 +168,10 @@ Checks:
 /eng-arch --check                # Verify layer rules
 
 # 3. During development
-/eng-unittest --watch            # TDD loop
+/eng-test --watch                # TDD loop
 
 # 4. Before PR
-/eng-test                        # Mutation testing
+/eng-mutation                    # Mutation testing (SLOW)
 /eng-review                      # Full checklist
 /eng-done
 ```
@@ -180,7 +182,7 @@ Checks:
 # Run all checks
 /eng-security                    # No secrets
 /eng-refactor                    # No code smells
-/eng-test --mode check           # Mutation score OK
+/eng-mutation --mode check       # Mutation score OK
 /eng-review                      # Summary
 ```
 
@@ -251,7 +253,7 @@ Warning: Mutation score 15% is below threshold 30%
 
 **Solution:** Add more tests that actually verify behavior:
 ```bash
-/eng-test --mode analyze         # See which code lacks tests
+/eng-mutation --mode analyze     # See which code lacks tests
 ```
 
 ---
@@ -261,8 +263,8 @@ Warning: Mutation score 15% is below threshold 30%
 ### When user says "test my code"
 
 ```bash
-/eng-unittest                    # Fast unit tests first
-/eng-test                        # Then mutation testing
+/eng-test                        # Fast unit tests (use this!)
+/eng-mutation                    # Only if user asks for test quality verification
 ```
 
 ### When user says "check for issues"

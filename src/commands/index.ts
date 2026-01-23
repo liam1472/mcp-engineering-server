@@ -352,7 +352,26 @@ export function registerCommands(): Tool[] {
     {
       name: 'eng_test',
       description:
-        'Run mutation testing to verify test quality. Reports raw mutation score without rationalization.',
+        'Run fast unit tests for TDD loop. Auto-detects test framework (vitest, jest, pytest, cargo, go). Use this frequently during development.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          file: {
+            type: 'string',
+            description: 'Target specific file for testing',
+          },
+          watch: {
+            type: 'boolean',
+            description: 'Enable watch mode for continuous testing',
+            default: false,
+          },
+        },
+      },
+    },
+    {
+      name: 'eng_mutation',
+      description:
+        'Run mutation testing (SLOW) to verify test quality. Use only before completing a feature, not during TDD.',
       inputSchema: {
         type: 'object',
         properties: {
@@ -371,25 +390,6 @@ export function registerCommands(): Tool[] {
             description:
               'run: Full mutation test, check: Verify threshold, analyze: Testability analysis only',
             default: 'run',
-          },
-        },
-      },
-    },
-    {
-      name: 'eng_unittest',
-      description:
-        'Run fast unit tests for TDD loop. Auto-detects test framework (vitest, jest, pytest, cargo, go).',
-      inputSchema: {
-        type: 'object',
-        properties: {
-          file: {
-            type: 'string',
-            description: 'Target specific file for testing',
-          },
-          watch: {
-            type: 'boolean',
-            description: 'Enable watch mode for continuous testing',
-            default: false,
           },
         },
       },
