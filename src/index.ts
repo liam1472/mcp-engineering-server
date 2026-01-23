@@ -539,7 +539,11 @@ server.setRequestHandler(CallToolRequestSchema, async request => {
           }
         }
 
-        resultText += `\nTrack progress with eng_validate, complete with eng_done.`;
+        resultText += `\n💡 Next steps:\n`;
+        resultText += `  1. /eng-plan ${featureName} - Create a planning document (recommended)\n`;
+        resultText += `  2. /eng-test - Verify test quality with mutation testing\n`;
+        resultText += `  3. /eng-validate - Run full validation pipeline\n`;
+        resultText += `  4. /eng-done - Complete and archive feature`;
 
         // Load and inject manifesto if available
         const manifesto = await featureManager.getManifesto();

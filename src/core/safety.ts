@@ -105,6 +105,7 @@ export interface FileBackup {
   path: string;
   backupPath: string;
   originalContent: string;
+  originalMode?: number; // Unix file permissions (preserved on write)
 }
 
 export class AtomicFileWriter {
@@ -118,18 +119,33 @@ export class AtomicFileWriter {
 
   /**
    * Backup a file before modification
+   * Preserves original file permissions (important for executable scripts on Unix)
    */
   async backup(filePath: string): Promise<void> {
     const fullPath = path.join(this.workingDir, filePath);
     const backupPath = fullPath + '.bak';
 
     try {
-      const content = await fs.readFile(fullPath, 'utf-8');
+      // Read content and get file stats (for permissions)
+      const [content, stat] = await Promise.all([
+        fs.readFile(fullPath, 'utf-8'),
+        fs.stat(fullPath),
+      ]);
+
+      // Write backup with same permissions
       await fs.writeFile(backupPath, content, 'utf-8');
+      // Preserve permissions on backup file (Unix only, no-op on Windows)
+      try {
+        await fs.chmod(backupPath, stat.mode);
+      } catch {
+        // chmod may fail on Windows, ignore
+      }
+
       this.backups.push({
         path: fullPath,
         backupPath,
         originalContent: content,
+        originalMode: stat.mode,
       });
     } catch (error) {
       throw new Error(`Failed to backup ${filePath}: ${String(error)}`);
@@ -138,12 +154,25 @@ export class AtomicFileWriter {
 
   /**
    * Write file content (tracks for rollback)
+   * Preserves original file permissions if file was backed up
    */
   async write(filePath: string, content: string, isNewFile = false): Promise<void> {
     const fullPath = path.join(this.workingDir, filePath);
 
     try {
       await fs.writeFile(fullPath, content, 'utf-8');
+
+      // Restore original permissions if this file was backed up
+      // This is important for executable scripts (chmod +x)
+      const backup = this.backups.find((b) => b.path === fullPath);
+      if (backup?.originalMode !== undefined) {
+        try {
+          await fs.chmod(fullPath, backup.originalMode);
+        } catch {
+          // chmod may fail on Windows, ignore
+        }
+      }
+
       if (isNewFile) {
         this.createdFiles.push(fullPath);
       }
@@ -163,6 +192,14 @@ export class AtomicFileWriter {
     for (const backup of this.backups) {
       try {
         await fs.writeFile(backup.path, backup.originalContent, 'utf-8');
+        // Restore original permissions
+        if (backup.originalMode !== undefined) {
+          try {
+            await fs.chmod(backup.path, backup.originalMode);
+          } catch {
+            // chmod may fail on Windows, ignore
+          }
+        }
         restored.push(backup.path);
         // Remove backup file
         try {

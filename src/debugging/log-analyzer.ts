@@ -71,6 +71,7 @@ export class LogAnalyzer {
     return new Promise((resolve) => {
       const matchedLines: string[] = [];
       let totalLines = 0;
+      let matchedCount = 0; // Track total matches separately (ring buffer only keeps tail)
       let regex: RegExp | null = null;
 
       // Compile pattern if provided
@@ -106,22 +107,30 @@ export class LogAnalyzer {
         }
 
         if (matches) {
-          matchedLines.push(line);
+          matchedCount++;
+          // Ring buffer: only keep last 'tail' lines in memory
+          // This prevents memory bomb on large files
+          if (tail > 0) {
+            if (matchedLines.length >= tail) {
+              matchedLines.shift(); // Remove oldest
+            }
+            matchedLines.push(line); // Add newest
+          }
+          // If tail=0, don't store any lines (just count)
         }
       });
 
       rl.on('close', () => {
-        // Get last N lines
-        const startIndex = Math.max(0, matchedLines.length - tail);
-        const resultLines = matchedLines.slice(startIndex);
-        const truncated = matchedLines.length > tail || totalLines > matchedLines.length;
+        // With ring buffer, matchedLines already contains only the last 'tail' lines
+        // No need to slice - the buffer is already the right size
+        const truncated = matchedCount > tail || totalLines > matchedCount;
 
         resolve({
           file,
-          lines: resultLines,
+          lines: matchedLines,
           totalLines,
-          matchedLines: matchedLines.length,
-          truncated: totalLines > tail,
+          matchedLines: matchedCount,
+          truncated,
         });
       });
 
